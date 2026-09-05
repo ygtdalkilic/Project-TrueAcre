@@ -34,6 +34,8 @@ from data.schemas import (
 
 CROP = "soybeans"
 SEEDS_PER_UNIT = 140_000  # one soybean seed unit (bag) holds 140,000 seeds
+DEFAULT_SEED = 42  # RNG seed for the default dataset used by the API and the CLI
+DEFAULT_OUT_DIR = Path(__file__).parent / "synthetic"  # where `python -m data.generate` writes CSVs
 
 # county, state, do all dealers report into the system, typical yield (bu/acre)
 COUNTIES = [
@@ -69,7 +71,7 @@ def generate(
     seasons: tuple[int, ...] = (2024, 2025),
     n_ghost: int = 10,
     n_missing_dealer: int = 10,
-    seed: int = 42,
+    seed: int = DEFAULT_SEED,
 ) -> dict[str, pd.DataFrame]:
     rng = np.random.default_rng(seed)
 
@@ -179,8 +181,13 @@ def write_csvs(tables: dict[str, pd.DataFrame], out_dir: Path) -> None:
         df.to_csv(out_dir / f"{name}.csv", index=False)
 
 
+def load_csvs(in_dir: Path) -> dict[str, pd.DataFrame]:
+    """Read every CSV in `in_dir` back into a table keyed by file stem."""
+    return {path.stem: pd.read_csv(path) for path in sorted(in_dir.glob("*.csv"))}
+
+
 if __name__ == "__main__":
     tables = generate()
-    write_csvs(tables, Path(__file__).parent / "synthetic")
+    write_csvs(tables, DEFAULT_OUT_DIR)
     for name, df in tables.items():
         print(f"{name:18s} {len(df):6d} rows")

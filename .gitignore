@@ -62,3 +62,4 @@ CLAUDE.md
 
 # --- Generated synthetic data (regenerate with: python -m data.generate) ---
 data/synthetic/
+.gstack/

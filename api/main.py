@@ -1,22 +1,33 @@
 """FastAPI endpoints: scored grower-seasons and the evidence behind each one.
 
-Data is the default synthetic dataset, generated in memory at startup.
+Configuration (environment variables, all optional):
+  TRUEACRE_DATA_DIR      directory of CSVs written by `python -m data.generate`; unset = generate in memory
+  TRUEACRE_SEED          RNG seed for in-memory generation (default: data.generate.DEFAULT_SEED)
+  TRUEACRE_CORS_ORIGINS  comma-separated browser origins allowed to call the API (default: Vite dev server)
+
 The ground-truth table is never exposed: it is the answer key for tests only.
 
 Run: uvicorn api.main:app --reload
 """
+import os
+from pathlib import Path
+
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from data.generate import generate
+from data.generate import DEFAULT_SEED, generate, load_csvs
 from engine.reconcile import reconcile
 from engine.score import score
 
-app = FastAPI(title="TrueAcre")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["*"], allow_headers=["*"])
+DATA_DIR = os.environ.get("TRUEACRE_DATA_DIR")
+SEED = int(os.environ.get("TRUEACRE_SEED", DEFAULT_SEED))
+CORS_ORIGINS = os.environ.get("TRUEACRE_CORS_ORIGINS", "http://localhost:5173").split(",")
 
-TABLES = generate()
+app = FastAPI(title="TrueAcre")
+app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_methods=["*"], allow_headers=["*"])
+
+TABLES = load_csvs(Path(DATA_DIR)) if DATA_DIR else generate(seed=SEED)
 SCORES = (
     score(reconcile(TABLES))
     .merge(TABLES["growers"][["grower_id", "name"]], on="grower_id")

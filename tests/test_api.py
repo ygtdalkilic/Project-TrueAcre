@@ -1,15 +1,16 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from api.main import SCORES, app
+from api.main import TABLES, app
 from engine.score import REVIEW
 
 client = TestClient(app)
+TRUTH = TABLES["ground_truth"]
 
 
 def test_scores_lists_every_grower_season_worst_first():
     rows = client.get("/scores").json()
-    assert len(rows) == len(SCORES) == 400
+    assert len(rows) == len(TRUTH)
     scores = [r["fair_play_score"] for r in rows]
     assert scores == sorted(scores)
     assert {"grower_id", "name", "season", "fair_play_score", "label", "coverage"} <= rows[0].keys()
@@ -17,10 +18,12 @@ def test_scores_lists_every_grower_season_worst_first():
 
 def test_scores_filters():
     review = client.get("/scores", params={"label": REVIEW}).json()
-    assert len(review) == 20 and all(r["label"] == REVIEW for r in review)
+    assert len(review) == (TRUTH["case_type"] == "ghost_seed").sum()
+    assert all(r["label"] == REVIEW for r in review)
 
-    subset = client.get("/scores", params={"season": 2024, "county": "Story"}).json()
-    assert subset and all(r["season"] == 2024 and r["county"] == "Story" for r in subset)
+    season, county = int(TRUTH["season"].iloc[0]), TABLES["growers"]["county"].iloc[0]
+    subset = client.get("/scores", params={"season": season, "county": county}).json()
+    assert subset and all(r["season"] == season and r["county"] == county for r in subset)
 
 
 def test_evidence_matches_score():
