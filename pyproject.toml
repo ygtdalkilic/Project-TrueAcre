@@ -1,0 +1,9 @@
+[project]
+name = "trueacre"
+version = "0.1.0"
+description = "Ghost-seed detection by reconciling dealer, acreage, and elevator data into a Fair-Play Score."
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
