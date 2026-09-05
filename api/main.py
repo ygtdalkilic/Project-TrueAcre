@@ -5,7 +5,8 @@ Configuration (environment variables, all optional):
   TRUEACRE_SEED          RNG seed for in-memory generation (default: data.generate.DEFAULT_SEED)
   TRUEACRE_CORS_ORIGINS  comma-separated browser origins allowed to call the API (default: Vite dev server)
 
-The ground-truth table is never exposed: it is the answer key for tests only.
+Pipeline: resolve (link external records to growers) -> reconcile -> score.
+The ground-truth tables are never exposed: they are the answer key for tests only.
 
 Run: uvicorn api.main:app --reload
 """
@@ -17,7 +18,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from data.generate import DEFAULT_SEED, generate, load_csvs
-from engine.reconcile import reconcile
+from engine.reconcile import YIELD_SIGMAS, reconcile
+from engine.resolve import resolve
 from engine.score import score
 
 DATA_DIR = os.environ.get("TRUEACRE_DATA_DIR")
@@ -28,8 +30,9 @@ app = FastAPI(title="TrueAcre")
 app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
 TABLES = load_csvs(Path(DATA_DIR)) if DATA_DIR else generate(seed=SEED)
+RESOLVED = resolve(TABLES)  # external records with grower_id attached; unmatched ones set aside
 SCORES = (
-    score(reconcile(TABLES))
+    score(reconcile(RESOLVED))
     .merge(TABLES["growers"][["grower_id", "name"]], on="grower_id")
     .sort_values(["fair_play_score", "grower_id", "season"])
 )
@@ -72,9 +75,9 @@ def grower_evidence(grower_id: str, season: int) -> dict:
     purchases = purchases.merge(TABLES["varieties"], on="variety_id")
     purchases["acres_supported"] = purchases["units"] * purchases["seeds_per_unit"] / purchases["target_seeds_per_acre"]
 
-    acreage = TABLES["acreage_reports"]
+    acreage = RESOLVED["acreage_reports"]
     acreage = acreage[(acreage["grower_id"] == grower_id) & (acreage["season"] == season)]
-    receipts = TABLES["elevator_receipts"]
+    receipts = RESOLVED["elevator_receipts"]
     receipts = receipts[(receipts["grower_id"] == grower_id) & (receipts["season"] == season)]
     yields = TABLES["county_yields"]
     yields = yields[(yields["county"] == row["county"]) & (yields["season"] == season)]
@@ -85,7 +88,14 @@ def grower_evidence(grower_id: str, season: int) -> dict:
             "purchase_id", "dealer", "variety_id", "name", "units", "seeds_per_unit",
             "target_seeds_per_acre", "acres_supported",
         ]].rename(columns={"name": "variety"})),
-        "acreage_reports": _records(acreage[["report_id", "crop", "acres"]]),
-        "elevator_receipts": _records(receipts[["receipt_id", "elevator_id", "crop", "bushels"]]),
+        "acreage_reports": _records(acreage[["report_id", "operator_name", "farm_number", "match_method", "crop", "acres"]]),
+        "elevator_receipts": _records(receipts[["receipt_id", "seller_name", "elevator_id", "match_method", "crop", "bushels"]]),
         "county_yield": _records(yields[["county", "state", "mean_yield", "std_yield"]])[0] if not yields.empty else None,
+        "yield_sigmas": YIELD_SIGMAS,
     }
+
+
+@app.get("/unmatched")
+def list_unmatched() -> list[dict]:
+    """External records that could not be linked to exactly one registered grower. Excluded from every score."""
+    return _records(RESOLVED["unmatched"])

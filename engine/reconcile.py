@@ -5,7 +5,10 @@ quantities the score is built from. Nothing here decides anything; it only measu
 """
 import pandas as pd
 
-YIELD_SIGMAS = 2.0  # yield ceiling = county mean + 2 std; generous on purpose so good weather never flags
+# Yield ceiling = county mean + YIELD_SIGMAS * std. Generous on purpose: an honest grower with an
+# exceptional year must never be flagged. At 2 sigma, roughly 1 in 40 honest grower-seasons beat the
+# ceiling; one of them exceeded the score tolerance in synthetic testing. 3 sigma leaves ~1 in 700.
+YIELD_SIGMAS = 3.0
 KEY = ["grower_id", "season"]
 
 

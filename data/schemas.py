@@ -1,6 +1,10 @@
 """Row schemas for the input tables and the synthetic ground truth.
 
 Each dataclass is one row. Tables are pandas DataFrames built from lists of rows.
+
+Only seed purchases carry grower_id, because they are the seed company's own customer records.
+Acreage reports and elevator receipts come from outside and identify the grower only by name,
+county, and (acreage only) a farm number. engine/resolve.py attaches grower_id to them.
 """
 from dataclasses import dataclass, fields
 
@@ -11,6 +15,7 @@ class Grower:
     name: str
     county: str
     state: str
+    farm_number: str | None  # FSA farm number, when the company has it on file
 
 
 @dataclass
@@ -44,7 +49,10 @@ class SeedPurchase:
 @dataclass
 class AcreageReport:
     report_id: str
-    grower_id: str
+    operator_name: str  # as written on the government form
+    farm_number: str
+    county: str
+    state: str
     season: int
     crop: str
     acres: float
@@ -53,7 +61,9 @@ class AcreageReport:
 @dataclass
 class ElevatorReceipt:
     receipt_id: str
-    grower_id: str
+    seller_name: str  # as written on the scale ticket
+    county: str
+    state: str
     elevator_id: str
     season: int
     crop: str
@@ -78,6 +88,13 @@ class GroundTruth:
     planted_acres: float  # what the grower really planted
     licensed_acres: float  # acres the seed they really bought could plant
     hidden_units: int  # units bought from a non-participating dealer, invisible to the system
+
+
+@dataclass
+class RecordLink:
+    """Ground truth: which grower an external record (acreage report or elevator receipt) really belongs to."""
+    record_id: str
+    grower_id: str
 
 
 def columns(row_type) -> list[str]:

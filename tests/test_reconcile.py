@@ -2,8 +2,9 @@ import pandas as pd
 import pytest
 
 from data.generate import generate
-from data.schemas import AcreageReport, ElevatorReceipt, SeedPurchase, columns
+from data.schemas import SeedPurchase, columns
 from engine.reconcile import reconcile
+from engine.resolve import resolve
 
 
 @pytest.fixture
@@ -12,7 +13,7 @@ def tiny():
 
     V1: 140k seeds/unit at 140k seeds/acre -> 1 acre per unit.
     V2: 140k seeds/unit at 70k seeds/acre  -> 2 acres per unit.
-    County yield mean 50, std 5 -> ceiling 60 bu/acre.
+    County yield mean 50, std 5 -> ceiling 50 + 3 * 5 = 65 bu/acre.
     Dealers: 2 in county, 1 participating -> coverage 0.5.
     """
     return {
@@ -33,16 +34,16 @@ def tiny():
             ("P2", "G1", "D1", "V1", 2024, 40),
             ("P3", "G2", "D1", "V2", 2024, 10),
         ], columns=columns(SeedPurchase)),
-        "acreage_reports": pd.DataFrame([
-            ("A1", "G1", 2024, "soybeans", 150.0),
-            ("A2", "G1", 2024, "corn", 1000.0),
-        ], columns=columns(AcreageReport)),
-        "elevator_receipts": pd.DataFrame([
-            ("R1", "G1", "E1", 2024, "soybeans", 5000.0),
-            ("R2", "G1", "E2", 2024, "soybeans", 2500.0),
-            ("R3", "G1", "E1", 2024, "corn", 50000.0),
-            ("R4", "G3", "E1", 2024, "soybeans", 3000.0),
-        ], columns=columns(ElevatorReceipt)),
+        # external records as they look after engine.resolve has attached grower_id
+        "acreage_reports": pd.DataFrame({
+            "report_id": ["A1", "A2"], "grower_id": ["G1", "G1"], "season": [2024, 2024],
+            "crop": ["soybeans", "corn"], "acres": [150.0, 1000.0],
+        }),
+        "elevator_receipts": pd.DataFrame({
+            "receipt_id": ["R1", "R2", "R3", "R4"], "grower_id": ["G1", "G1", "G1", "G3"],
+            "elevator_id": ["E1", "E2", "E1", "E1"], "season": [2024] * 4,
+            "crop": ["soybeans", "soybeans", "corn", "soybeans"], "bushels": [5000.0, 2500.0, 50000.0, 3000.0],
+        }),
         "county_yields": pd.DataFrame({
             "county": ["X"], "state": ["IA"], "season": [2024], "crop": ["soybeans"],
             "mean_yield": [50.0], "std_yield": [5.0],
@@ -55,10 +56,10 @@ def test_full_grower_hand_calculated(tiny):
     assert row.licensed_acres == 100.0
     assert row.declared_acres == 150.0
     assert row.delivered_bushels == 7500.0
-    assert row.yield_ceiling == 60.0
-    assert row.max_bushels == 6000.0
+    assert row.yield_ceiling == 65.0
+    assert row.max_bushels == 6500.0
     assert row.acre_gap == 50.0
-    assert row.bushel_gap == 1500.0
+    assert row.bushel_gap == 1000.0
     assert row.dealer_coverage == 0.5
     assert row.has_purchases and row.has_acreage and row.has_deliveries
 
@@ -77,7 +78,7 @@ def test_purchases_only(tiny):
     assert row.has_purchases and not row.has_acreage and not row.has_deliveries
     assert row.declared_acres == 0.0 and row.delivered_bushels == 0.0
     assert row.acre_gap == -20.0
-    assert row.bushel_gap == -1200.0
+    assert row.bushel_gap == -1300.0
 
 
 def test_deliveries_only(tiny):
@@ -95,7 +96,7 @@ def test_one_row_per_grower_season(tiny):
 
 
 def test_against_synthetic_ground_truth():
-    tables = generate(n_growers=150, n_ghost=8, n_missing_dealer=8, seed=3)
+    tables = resolve(generate(n_growers=150, n_ghost=8, n_missing_dealer=8, seed=3, messy_names=False))
     truth = tables["ground_truth"].rename(columns={"licensed_acres": "true_licensed_acres"})
     out = reconcile(tables).merge(truth, on=["grower_id", "season"])
     assert len(out) == 150 * 2

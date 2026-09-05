@@ -27,9 +27,16 @@ def test_row_counts(tables):
 
 def test_every_grower_season_has_acreage_and_deliveries(tables):
     keys = tables["ground_truth"][["grower_id", "season"]]
-    for name in ("acreage_reports", "elevator_receipts"):
-        present = tables[name][["grower_id", "season"]].drop_duplicates()
+    links = tables["record_links"]
+    for name, id_col in (("acreage_reports", "report_id"), ("elevator_receipts", "receipt_id")):
+        linked = tables[name].merge(links, left_on=id_col, right_on="record_id")
+        assert len(linked) == len(tables[name])  # every external record has a ground-truth owner
+        present = linked[["grower_id", "season"]].drop_duplicates()
         assert len(keys.merge(present)) == len(keys)
+
+
+def test_registry_names_are_unique_within_a_county(tables):
+    assert not tables["growers"].duplicated(["name", "county"]).any()
 
 
 def test_case_type_invariants(tables):

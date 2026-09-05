@@ -135,6 +135,16 @@ section tbody tr.selected {
   color: var(--review);
 }
 
+button.link {
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 aside {
   position: sticky;
   top: 24px;

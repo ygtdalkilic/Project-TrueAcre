@@ -71,15 +71,18 @@ export default function Evidence({ growerId, season }) {
       <h3>2. Acres declared</h3>
       {data.acreage_reports.length ? (
         <table>
-          <thead><tr><th>Report</th><th>Crop</th><th className="num">Acres</th></tr></thead>
+          <thead><tr><th>Report</th><th>Name on form</th><th>Linked by</th><th className="num">Acres</th></tr></thead>
           <tbody>
             {data.acreage_reports.map((a) => (
-              <tr key={a.report_id}><td>{a.report_id}</td><td>{a.crop}</td><td className="num">{fmt(a.acres)}</td></tr>
+              <tr key={a.report_id}>
+                <td>{a.report_id}</td><td>{a.operator_name}</td><td>{a.match_method}</td>
+                <td className="num">{fmt(a.acres)}</td>
+              </tr>
             ))}
           </tbody>
         </table>
       ) : (
-        <p className="muted">No acreage report for this grower and season.</p>
+        <p className="muted">No acreage report could be linked to this grower for this season.</p>
       )}
       <p className="calc">
         Acre gap = {fmt(s.declared_acres)} − {fmt(s.licensed_acres)} = <b>{fmt(s.acre_gap)}</b>{' '}
@@ -89,19 +92,22 @@ export default function Evidence({ growerId, season }) {
       <h3>3. Grain delivered</h3>
       {data.elevator_receipts.length ? (
         <table>
-          <thead><tr><th>Receipt</th><th>Elevator</th><th>Crop</th><th className="num">Bushels</th></tr></thead>
+          <thead><tr><th>Receipt</th><th>Name on ticket</th><th>Elevator</th><th>Linked by</th><th className="num">Bushels</th></tr></thead>
           <tbody>
             {data.elevator_receipts.map((r) => (
-              <tr key={r.receipt_id}><td>{r.receipt_id}</td><td>{r.elevator_id}</td><td>{r.crop}</td><td className="num">{fmt(r.bushels)}</td></tr>
+              <tr key={r.receipt_id}>
+                <td>{r.receipt_id}</td><td>{r.seller_name}</td><td>{r.elevator_id}</td><td>{r.match_method}</td>
+                <td className="num">{fmt(r.bushels)}</td>
+              </tr>
             ))}
           </tbody>
         </table>
       ) : (
-        <p className="muted">No elevator receipts for this grower and season.</p>
+        <p className="muted">No elevator receipts could be linked to this grower for this season.</p>
       )}
       {cy && (
         <p className="calc">
-          Yield ceiling = county mean {cy.mean_yield} + 2 × std {cy.std_yield} = <b>{fmt(s.yield_ceiling)}</b> bu/acre
+          Yield ceiling = county mean {cy.mean_yield} + {data.yield_sigmas} × std {cy.std_yield} = <b>{fmt(s.yield_ceiling)}</b> bu/acre
         </p>
       )}
       <p className="calc">

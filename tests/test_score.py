@@ -4,6 +4,7 @@ import pytest
 
 from data.generate import generate
 from engine.reconcile import reconcile
+from engine.resolve import resolve
 from engine.score import CONSISTENT, INSUFFICIENT, REVIEW, score
 
 
@@ -62,7 +63,7 @@ def test_missing_yield_reference_ignores_bushels():
 
 @pytest.mark.parametrize("seed", [42, 7, 2025])
 def test_labels_match_synthetic_ground_truth(seed):
-    tables = generate(seed=seed)
+    tables = resolve(generate(seed=seed, messy_names=False))  # exact names: every record links, so labels are exact
     truth = tables["ground_truth"][["grower_id", "season", "case_type"]]
     out = score(reconcile(tables)).merge(truth, on=["grower_id", "season"])
     assert len(out) == len(truth)

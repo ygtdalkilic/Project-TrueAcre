@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchScores } from './api.js'
+import { fetchScores, fetchUnmatched } from './api.js'
 import Evidence from './Evidence.jsx'
 import { Label, fmt, pct } from './ui.jsx'
 
@@ -7,6 +7,8 @@ const LABELS = ['review recommended', 'insufficient data', 'consistent']
 
 export default function App() {
   const [scores, setScores] = useState([])
+  const [unmatched, setUnmatched] = useState([])
+  const [showUnmatched, setShowUnmatched] = useState(false)
   const [error, setError] = useState(null)
   const [season, setSeason] = useState('')
   const [county, setCounty] = useState('')
@@ -15,6 +17,7 @@ export default function App() {
 
   useEffect(() => {
     fetchScores().then(setScores).catch((e) => setError(e.message))
+    fetchUnmatched().then(setUnmatched).catch((e) => setError(e.message))
   }, [])
 
   const seasons = [...new Set(scores.map((s) => s.season))].sort()
@@ -90,6 +93,28 @@ export default function App() {
               ))}
             </tbody>
           </table>
+
+          {unmatched.length > 0 && (
+            <p className="muted">
+              {unmatched.length} external records could not be linked to a registered grower with confidence
+              and are excluded from every score.{' '}
+              <button className="link" onClick={() => setShowUnmatched(!showUnmatched)}>
+                {showUnmatched ? 'hide' : 'show'}
+              </button>
+            </p>
+          )}
+          {showUnmatched && (
+            <table>
+              <thead><tr><th>Source</th><th>Record</th><th>Name on record</th><th>County</th><th>Reason</th></tr></thead>
+              <tbody>
+                {unmatched.map((u) => (
+                  <tr key={u.record_id}>
+                    <td>{u.source}</td><td>{u.record_id}</td><td>{u.name}</td><td>{u.county}</td><td>{u.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </section>
 
         <aside>

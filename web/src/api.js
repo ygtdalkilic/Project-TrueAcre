@@ -8,4 +8,5 @@ async function get(path) {
 }
 
 export const fetchScores = () => get('/scores')
+export const fetchUnmatched = () => get('/unmatched')
 export const fetchEvidence = (growerId, season) => get(`/growers/${growerId}/seasons/${season}`)
