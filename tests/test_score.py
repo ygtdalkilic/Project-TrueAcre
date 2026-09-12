@@ -55,6 +55,15 @@ def test_purchases_only_is_consistent():
     assert r.label == CONSISTENT
 
 
+def test_bushel_only_gap_needs_to_be_large():
+    # 100 licensed acres cover the 100 declared; only the bushels are over the 6000 bu ceiling
+    modest = _row(declared_acres=100.0, delivered_bushels=6600.0)  # 9% unsupported: an exceptional year
+    assert modest.unsupported_bushel_fraction == pytest.approx(600 / 6600)
+    assert modest.label == CONSISTENT
+    large = _row(declared_acres=100.0, delivered_bushels=9000.0)  # 33% unsupported: beyond yield variance
+    assert large.label == REVIEW
+
+
 def test_missing_yield_reference_ignores_bushels():
     r = _row(declared_acres=100.0, max_bushels=np.nan)
     assert r.unsupported_bushel_fraction == 0.0
