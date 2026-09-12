@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchEvidence, fetchExplanation } from './api.js'
+import { api } from './api.js'
 import { Label, fmt, pct } from './ui.jsx'
 
 function conclusion(s) {
@@ -27,13 +27,13 @@ export default function Evidence({ growerId, season, explain }) {
     setError(null)
     setExplanation(null)
     setExplainError(null)
-    fetchEvidence(growerId, season).then(setData).catch((e) => setError(e.message))
+    api.evidence(growerId, season).then(setData).catch((e) => setError(e.message))
   }, [growerId, season])
 
   const requestExplanation = () => {
     setExplaining(true)
     setExplainError(null)
-    fetchExplanation(growerId, season)
+    api.explanation(growerId, season)
       .then((r) => setExplanation(r.explanation))
       .catch((e) => setExplainError(e.message))
       .finally(() => setExplaining(false))

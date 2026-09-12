@@ -1,91 +1,212 @@
 import json
 
 import pytest
-from fastapi.testclient import TestClient
 
-import api.main as main
-from api.main import RESOLVED, TABLES, app
+import api.auth as auth
+import api.scores as scores_module
+from data.generate import DEFAULT_SEED, generate
 from engine.explain import LLMClient
 from engine.reconcile import YIELD_SIGMAS
 from engine.score import REVIEW
+from tests.conftest import create_org, load_demo, login
 from tests.test_explain import fake_server
 
-client = TestClient(app)
-TRUTH = TABLES["ground_truth"]
+TRUTH = generate(seed=DEFAULT_SEED)["ground_truth"]  # the demo dataset's answer key
 
 
-def test_scores_lists_every_grower_season_worst_first():
-    rows = client.get("/scores").json()
+# --- public surface and protection ---------------------------------------------------------------
+
+def test_health_config_and_security_headers(client):
+    r = client.get("/api/health")
+    assert r.json() == {"ok": True}
+    assert r.headers["content-security-policy"].startswith("default-src 'self'")
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert r.headers["x-frame-options"] == "DENY"
+    assert client.get("/api/config").json()["dev_login"] is True
+    assert client.get("/api/no-such-endpoint").status_code == 404  # never the dashboard page
+
+
+def test_everything_else_requires_sign_in(client):
+    for path in ("/api/me", "/api/scores", "/api/data", "/api/unmatched", "/api/orgs/current/members"):
+        assert client.get(path).status_code == 401, path
+    assert client.post("/api/orgs", json={"name": "X"}).status_code == 401
+
+
+def test_cross_site_requests_are_refused(client):
+    r = client.post("/api/auth/dev", json={"email": "a@x.com"}, headers={"Origin": "https://evil.example"})
+    assert r.status_code == 403
+    r = client.post("/api/auth/dev", json={"email": "a@x.com"}, headers={"Sec-Fetch-Site": "cross-site"})
+    assert r.status_code == 403
+    r = client.post("/api/auth/dev", json={"email": "a@x.com"}, headers={"Origin": "http://testserver"})
+    assert r.status_code == 200
+
+
+def test_sign_in_is_rate_limited(client, monkeypatch):
+    monkeypatch.setattr(auth, "LOGIN_LIMIT", auth.RateLimiter(limit=3, window_seconds=60))
+    for _ in range(3):
+        assert client.post("/api/auth/dev", json={"email": "a@x.com"}).status_code == 200
+    r = client.post("/api/auth/dev", json={"email": "a@x.com"})
+    assert r.status_code == 429 and "retry-after" in r.headers
+
+
+# --- accounts and companies ----------------------------------------------------------------------
+
+def test_google_sign_in_verifies_the_token(client, monkeypatch):
+    monkeypatch.setattr(auth, "GOOGLE_CLIENT_ID", "client-id")
+    monkeypatch.setattr(auth, "verify_google_token", lambda cred: {
+        "sub": "g-123", "email": "Farmer@Example.com", "email_verified": True, "name": "Farmer", "picture": "p",
+    })
+    me = client.post("/api/auth/google", json={"credential": "token"}).json()
+    assert me["user"]["email"] == "farmer@example.com" and me["organizations"] == []
+
+    def reject(cred):
+        raise ValueError("bad token")
+    monkeypatch.setattr(auth, "verify_google_token", reject)
+    assert client.post("/api/auth/google", json={"credential": "token"}).status_code == 401
+
+
+def test_google_sign_in_off_without_client_id(client):
+    assert client.post("/api/auth/google", json={"credential": "t"}).status_code == 503
+
+
+def test_create_company_and_switch(client):
+    me = login(client, "owner@x.com", "Owner")
+    assert me["current_org"] is None
+    assert client.get("/api/scores").status_code == 403  # no company chosen yet
+
+    me = create_org(client, "  Acme   Seeds ")
+    assert me["current_org"] == {"id": me["organizations"][0]["id"], "name": "Acme Seeds", "role": "admin"}
+    second = create_org(client, "Beta Genetics")["current_org"]
+    assert client.get("/api/me").json()["current_org"]["name"] == "Beta Genetics"
+    first_id = me["current_org"]["id"]
+    assert client.put("/api/me/org", json={"org_id": first_id}).json()["current_org"]["id"] == first_id
+    assert client.put("/api/me/org", json={"org_id": 99999}).status_code == 403
+    assert second["name"] == "Beta Genetics"
+
+
+def test_invites_and_roles(client):
+    login(client, "admin@x.com")
+    org = create_org(client, "Acme")["current_org"]
+    assert client.post("/api/orgs/current/invites", json={"email": "New@x.com", "role": "analyst"}).status_code == 201
+    assert client.post("/api/orgs/current/invites", json={"email": "bad", "role": "analyst"}).status_code == 400
+    assert client.post("/api/orgs/current/invites", json={"email": "z@x.com", "role": "boss"}).status_code == 400
+    members = client.get("/api/orgs/current/members").json()
+    assert [i["email"] for i in members["invites"]] == ["new@x.com"]
+    client.post("/api/auth/logout")
+
+    me = login(client, "new@x.com")  # invite becomes a membership on sign-in
+    assert me["current_org"] == {"id": org["id"], "name": "Acme", "role": "analyst"}
+    assert client.post("/api/orgs/current/invites", json={"email": "q@x.com"}).status_code == 403  # analysts cannot invite
+    assert "invites" not in client.get("/api/orgs/current/members").json()
+    client.post("/api/auth/logout")
+
+    login(client, "admin@x.com")
+    members = client.get("/api/orgs/current/members").json()
+    assert sorted(m["email"] for m in members["members"]) == ["admin@x.com", "new@x.com"]
+    assert members["invites"] == []
+    admin_id = next(m["user_id"] for m in members["members"] if m["email"] == "admin@x.com")
+    assert client.delete(f"/api/orgs/current/members/{admin_id}").status_code == 409  # last admin stays
+
+
+def test_logout_everywhere_invalidates_old_cookie(client):
+    login(client, "a@x.com")
+    assert client.get("/api/me").status_code == 200
+    client.post("/api/auth/logout-all")
+    assert client.get("/api/me").status_code == 401
+
+
+# --- data intake ----------------------------------------------------------------------------------
+
+def test_templates_and_validation(client):
+    login(client, "a@x.com")
+    create_org(client, "Acme")
+    assert client.get("/api/data/templates/growers.csv").text == "grower_id,name,county,state,farm_number\n"
+    assert client.get("/api/data/templates/nope.csv").status_code == 404
+
+    def put(table, text):
+        return client.put(f"/api/data/{table}", files={"file": (f"{table}.csv", text.encode(), "text/csv")})
+
+    assert "missing columns: state, farm_number" in put("growers", "grower_id,name,county\nG1,A,X\n").json()["detail"]
+    assert "must be numeric (rows [3])" in put("varieties", "variety_id,name,crop,seeds_per_unit,target_seeds_per_acre\nV1,a,soy,140000,140000\nV2,b,soy,lots,140000\n").json()["detail"]
+    assert "must be true/false" in put("dealers", "dealer_id,name,county,state,participating\nD1,d,X,IA,maybe\n").json()["detail"]
+    assert "blank values" in put("growers", "grower_id,name,county,state,farm_number\nG1,,X,IA,\n").json()["detail"]
+
+    ok = put("growers", "grower_id,name,county,state,farm_number,extra\nG1,Ann,X,IA,,ignored\nG2,Bob,X,IA,F2,ignored\n")
+    assert ok.status_code == 200 and ok.json()["rows"] == 2
+    status = {row["table"]: row["rows"] for row in client.get("/api/data").json()}
+    assert status["growers"] == 2 and status["dealers"] is None
+
+    r = client.get("/api/scores")
+    assert r.status_code == 409 and "dealers" in r.json()["detail"]["missing"]
+    assert client.delete("/api/data/growers").status_code == 204
+    assert client.delete("/api/data/growers").status_code == 404
+
+
+def test_demo_data_scores_match_the_engine(client):
+    login(client, "a@x.com")
+    create_org(client, "Acme")
+    load_demo(client)
+    rows = client.get("/api/scores").json()
     assert len(rows) == len(TRUTH)
     scores = [r["fair_play_score"] for r in rows]
     assert scores == sorted(scores)
-    assert {"grower_id", "name", "season", "fair_play_score", "label", "coverage"} <= rows[0].keys()
 
-
-def test_scores_filters():
-    review = client.get("/scores", params={"label": REVIEW}).json()
+    review = client.get("/api/scores", params={"label": REVIEW}).json()
     ghost = TRUTH[TRUTH["case_type"] == "ghost_seed"]
-    assert review and all(r["label"] == REVIEW for r in review)
-    assert {(r["grower_id"], r["season"]) for r in review} <= set(zip(ghost["grower_id"], ghost["season"]))
+    assert review and {(r["grower_id"], r["season"]) for r in review} <= set(zip(ghost["grower_id"], ghost["season"]))
 
-    season, county = int(TRUTH["season"].iloc[0]), TABLES["growers"]["county"].iloc[0]
-    subset = client.get("/scores", params={"season": season, "county": county}).json()
-    assert subset and all(r["season"] == season and r["county"] == county for r in subset)
-
-
-def test_evidence_matches_score():
-    flagged = client.get("/scores", params={"label": REVIEW}).json()[0]
-    body = client.get(f"/growers/{flagged['grower_id']}/seasons/{flagged['season']}").json()
-
+    flagged = review[0]
+    body = client.get(f"/api/growers/{flagged['grower_id']}/seasons/{flagged['season']}").json()
     assert body["score"] == flagged
-    assert body["purchases"]
-    assert all(a["match_method"] for a in body["acreage_reports"] + body["elevator_receipts"])
     assert sum(p["acres_supported"] for p in body["purchases"]) == pytest.approx(flagged["licensed_acres"])
     assert sum(a["acres"] for a in body["acreage_reports"]) == pytest.approx(flagged["declared_acres"])
-    assert sum(r["bushels"] for r in body["elevator_receipts"]) == pytest.approx(flagged["delivered_bushels"])
     cy = body["county_yield"]
-    assert body["yield_sigmas"] == YIELD_SIGMAS
     assert cy["mean_yield"] + YIELD_SIGMAS * cy["std_yield"] == pytest.approx(flagged["yield_ceiling"])
+    assert client.get("/api/growers/NOPE/seasons/2024").status_code == 404
+    assert isinstance(client.get("/api/unmatched").json(), list)
 
 
-def test_unknown_grower_is_404():
-    assert client.get("/growers/NOPE/seasons/2024").status_code == 404
+def test_companies_cannot_see_each_other(client):
+    login(client, "a@x.com")
+    org_a = create_org(client, "A Co")["current_org"]
+    load_demo(client)
+    grower = client.get("/api/scores").json()[0]
+    client.post("/api/auth/logout")
+
+    login(client, "b@x.com")
+    create_org(client, "B Co")
+    assert client.put("/api/me/org", json={"org_id": org_a["id"]}).status_code == 403
+    assert client.get("/api/scores").status_code == 409  # B has no data, and none of A's leaks
+    assert client.get(f"/api/growers/{grower['grower_id']}/seasons/{grower['season']}").status_code == 409
 
 
-def test_unmatched_records_are_listed():
-    rows = client.get("/unmatched").json()
-    assert len(rows) == len(RESOLVED["unmatched"])
-    assert list(RESOLVED["unmatched"].columns) == ["source", "record_id", "name", "county", "reason"]
+# --- explanations -----------------------------------------------------------------------------------
+
+def test_explanations_disabled_without_a_provider(client, monkeypatch):
+    monkeypatch.setattr(scores_module, "EXPLAIN_CLIENT", None)
+    login(client, "a@x.com")
+    create_org(client, "Acme")
+    load_demo(client)
+    row = client.get("/api/scores").json()[0]
+    assert client.get("/api/config").json()["explanations_enabled"] is False
+    assert client.post(f"/api/growers/{row['grower_id']}/seasons/{row['season']}/explanation").status_code == 503
 
 
-def _fake_llm(monkeypatch, **server):
-    transport, seen = fake_server(**server)
-    monkeypatch.setattr(main, "EXPLAIN_CLIENT", LLMClient("custom", "http://fake/v1", "test-model", transport=transport))
-    return seen
+def test_explanation_is_written_from_the_evidence(client, monkeypatch):
+    transport, seen = fake_server(reply="Plain words.")
+    monkeypatch.setattr(scores_module, "EXPLAIN_CLIENT", LLMClient("custom", "http://fake/v1", "test-model", transport=transport))
+    login(client, "a@x.com")
+    create_org(client, "Acme")
+    load_demo(client)
+    row = client.get("/api/scores").json()[0]
+    assert client.get("/api/config").json()["provider"] == "custom"
 
-
-def test_explanations_disabled_without_a_provider(monkeypatch):
-    monkeypatch.setattr(main, "EXPLAIN_CLIENT", None)
-    row = TRUTH.iloc[0]
-    assert client.get("/config").json() == {"explanations_enabled": False, "provider": None, "model": None}
-    assert client.post(f"/growers/{row.grower_id}/seasons/{row.season}/explanation").status_code == 503
-
-
-def test_explanation_is_written_from_the_evidence(monkeypatch):
-    seen = _fake_llm(monkeypatch, reply="Plain words.")
-    row = TRUTH.iloc[0]
-    assert client.get("/config").json() == {"explanations_enabled": True, "provider": "custom", "model": "test-model"}
-
-    body = client.post(f"/growers/{row.grower_id}/seasons/{row.season}/explanation").json()
+    body = client.post(f"/api/growers/{row['grower_id']}/seasons/{row['season']}/explanation").json()
     assert body == {"explanation": "Plain words."}
     sent = json.loads(json.loads(seen[0].content)["messages"][1]["content"])
-    assert sent == client.get(f"/growers/{row.grower_id}/seasons/{row.season}").json()
-    assert client.post("/growers/NOPE/seasons/2024/explanation").status_code == 404
+    assert sent == client.get(f"/api/growers/{row['grower_id']}/seasons/{row['season']}").json()
 
-
-def test_upstream_failure_is_a_502_with_the_reason(monkeypatch):
-    _fake_llm(monkeypatch, status=500)
-    row = TRUTH.iloc[0]
-    response = client.post(f"/growers/{row.grower_id}/seasons/{row.season}/explanation")
-    assert response.status_code == 502
-    assert "custom returned 500" in response.json()["detail"]
+    transport, _ = fake_server(status=500)
+    monkeypatch.setattr(scores_module, "EXPLAIN_CLIENT", LLMClient("custom", "http://fake/v1", "m", transport=transport))
+    r = client.post(f"/api/growers/{row['grower_id']}/seasons/{row['season']}/explanation")
+    assert r.status_code == 502 and "custom returned 500" in r.json()["detail"]

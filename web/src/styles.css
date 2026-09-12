@@ -24,15 +24,150 @@ body {
   padding: 24px;
 }
 
-header h1 {
+h1 {
   margin: 0 0 4px;
   font-size: 24px;
 }
 
-header p {
-  margin: 0 0 20px;
-  color: var(--muted);
+.narrow {
+  max-width: 480px;
+}
+
+.narrow-left {
   max-width: 760px;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.bar .brand h1 {
+  margin: 0;
+}
+
+.bar nav {
+  display: flex;
+  gap: 4px;
+}
+
+.bar .who {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.tab {
+  font: inherit;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+  color: var(--fg);
+}
+
+.tab.active {
+  background: white;
+  border-color: var(--line);
+  font-weight: 600;
+}
+
+.panel {
+  background: white;
+  border: 1px solid var(--line);
+  padding: 16px 20px;
+  margin: 16px 0;
+}
+
+.panel h3 {
+  margin: 0 0 8px;
+}
+
+input[type="text"],
+input[type="email"] {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 8px 0;
+}
+
+form.inline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+form.inline input {
+  display: inline-block;
+  width: auto;
+  flex: 1;
+  margin: 0;
+}
+
+ul.plain {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+ul.plain li {
+  padding: 6px 0;
+}
+
+.google-button {
+  margin: 16px 0;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  background: white;
+  border: 1px solid var(--line);
+  padding: 14px 16px;
+}
+
+.card h3 {
+  margin: 0 0 6px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+.card p {
+  margin: 6px 0;
+}
+
+.small {
+  font-size: 12px;
+}
+
+.actions {
+  display: flex;
+  gap: 14px;
+}
+
+.actions a,
+.actions label.link {
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.ok {
+  color: var(--ok);
 }
 
 .layout {

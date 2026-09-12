@@ -1,0 +1,15 @@
+.git
+.git-outer-empty-backup
+.github
+.venv
+.env
+.env.*
+*.db
+data/synthetic
+web/node_modules
+web/dist
+tests
+.pytest_cache
+__pycache__
+CLAUDE.md
+.gstack

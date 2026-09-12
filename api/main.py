@@ -1,136 +1,81 @@
-"""FastAPI endpoints: scored grower-seasons and the evidence behind each one.
+"""TrueAcre API and, in production, the dashboard.
 
-Configuration (environment variables, all optional):
-  TRUEACRE_DATA_DIR      directory of CSVs written by `python -m data.generate`; unset = generate in memory
-  TRUEACRE_SEED          RNG seed for in-memory generation (default: data.generate.DEFAULT_SEED)
-  TRUEACRE_CORS_ORIGINS  comma-separated browser origins allowed to call the API (default: Vite dev server)
-  TRUEACRE_LLM_PROVIDER  enables plain-English explanations: gemini, openai, anthropic, ollama, lmstudio,
-                         or custom (see engine/explain.py for the companion variables); unset = disabled
+Every route lives under /api. When web/dist exists (the production container), the built
+dashboard is served from / by this same process, so there is no CORS and one URL to deploy.
+
+Configuration (environment variables, all optional unless noted):
+  DATABASE_URL            SQLite file by default; Postgres in the cloud (see api/db.py)
+  GOOGLE_CLIENT_ID        enables Google sign-in (see api/auth.py)
+  SESSION_SECRET          signs session cookies; required in production
+  TRUEACRE_ENV            "production" turns on HSTS, Secure cookies, and disables dev login and API docs
+  TRUEACRE_DEV_LOGIN      "1" enables email-only login outside production
+  TRUEACRE_ALLOWED_HOSTS  comma-separated Host values the server answers to (default: any)
+  TRUEACRE_LLM_PROVIDER   enables plain-English explanations (see engine/explain.py)
 
 Put secrets in a gitignored .env and start with: uvicorn api.main:app --reload --env-file .env
-
-Pipeline: resolve (link external records to growers) -> reconcile -> score.
-Explanations are a separate, optional step that reads the evidence and never changes a score.
-The ground-truth tables are never exposed: they are the answer key for tests only.
-
-Run: uvicorn api.main:app --reload
 """
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-import httpx
-import pandas as pd
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from data.generate import DEFAULT_SEED, generate, load_csvs
-from engine.explain import ExplainError, LLMClient, explain
-from engine.reconcile import YIELD_SIGMAS, reconcile
-from engine.resolve import resolve
-from engine.score import score
+from api import auth, datasets, orgs, scores
+from api.db import init_db
+from api.security import IS_PRODUCTION, SameOriginMiddleware, SecurityHeadersMiddleware
 
-DATA_DIR = os.environ.get("TRUEACRE_DATA_DIR")
-SEED = int(os.environ.get("TRUEACRE_SEED", DEFAULT_SEED))
-CORS_ORIGINS = os.environ.get("TRUEACRE_CORS_ORIGINS", "http://localhost:5173").split(",")
-# Explanations call a chat model, cloud or local; off unless a provider is configured. The dashboard hides the button.
-EXPLAIN_CLIENT = LLMClient.from_env()
+ALLOWED_HOSTS = os.environ.get("TRUEACRE_ALLOWED_HOSTS", "*").split(",")
+WEB_DIST = Path(__file__).resolve().parent.parent / "web" / "dist"
 
-app = FastAPI(title="TrueAcre")
-app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_methods=["*"], allow_headers=["*"])
 
-TABLES = load_csvs(Path(DATA_DIR)) if DATA_DIR else generate(seed=SEED)
-RESOLVED = resolve(TABLES)  # external records with grower_id attached; unmatched ones set aside
-SCORES = (
-    score(reconcile(RESOLVED))
-    .merge(TABLES["growers"][["grower_id", "name"]], on="grower_id")
-    .sort_values(["fair_play_score", "grower_id", "season"])
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(
+    title="TrueAcre",
+    lifespan=lifespan,
+    docs_url=None if IS_PRODUCTION else "/api/docs",
+    redoc_url=None,
+    openapi_url=None if IS_PRODUCTION else "/api/openapi.json",
 )
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(SameOriginMiddleware)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 
-SCORE_COLUMNS = [
-    "grower_id", "name", "county", "state", "season", "fair_play_score", "label",
-    "gap_fraction", "unsupported_acre_fraction", "unsupported_bushel_fraction", "coverage",
-    "licensed_acres", "declared_acres", "delivered_bushels", "yield_ceiling", "max_bushels",
-    "acre_gap", "bushel_gap", "has_purchases", "has_acreage", "has_deliveries",
-]
-
-
-def _records(df: pd.DataFrame) -> list[dict]:
-    """DataFrame rows as JSON-safe dicts (NaN becomes null)."""
-    return df.astype(object).where(df.notna(), None).to_dict(orient="records")
+for module in (auth, orgs, datasets, scores):
+    app.include_router(module.router)
 
 
-@app.get("/scores")
-def list_scores(season: int | None = None, county: str | None = None, label: str | None = None) -> list[dict]:
-    df = SCORES
-    if season is not None:
-        df = df[df["season"] == season]
-    if county is not None:
-        df = df[df["county"] == county]
-    if label is not None:
-        df = df[df["label"] == label]
-    return _records(df[SCORE_COLUMNS])
+@app.get("/api/health")
+def health() -> dict:
+    return {"ok": True}
 
 
-@app.get("/growers/{grower_id}/seasons/{season}")
-def grower_evidence(grower_id: str, season: int) -> dict:
-    match = SCORES[(SCORES["grower_id"] == grower_id) & (SCORES["season"] == season)]
-    if match.empty:
-        raise HTTPException(status_code=404, detail="no data for that grower and season")
-    row = match.iloc[0]
-
-    purchases = TABLES["seed_purchases"]
-    purchases = purchases[(purchases["grower_id"] == grower_id) & (purchases["season"] == season)]
-    purchases = purchases.merge(TABLES["dealers"][["dealer_id", "name"]].rename(columns={"name": "dealer"}), on="dealer_id")
-    purchases = purchases.merge(TABLES["varieties"], on="variety_id")
-    purchases["acres_supported"] = purchases["units"] * purchases["seeds_per_unit"] / purchases["target_seeds_per_acre"]
-
-    acreage = RESOLVED["acreage_reports"]
-    acreage = acreage[(acreage["grower_id"] == grower_id) & (acreage["season"] == season)]
-    receipts = RESOLVED["elevator_receipts"]
-    receipts = receipts[(receipts["grower_id"] == grower_id) & (receipts["season"] == season)]
-    yields = TABLES["county_yields"]
-    yields = yields[(yields["county"] == row["county"]) & (yields["season"] == season)]
-
+@app.get("/api/config")
+def config() -> dict:
+    """Public settings the dashboard needs before anyone is signed in."""
+    client = scores.EXPLAIN_CLIENT
     return {
-        "score": _records(match[SCORE_COLUMNS])[0],
-        "purchases": _records(purchases[[
-            "purchase_id", "dealer", "variety_id", "name", "units", "seeds_per_unit",
-            "target_seeds_per_acre", "acres_supported",
-        ]].rename(columns={"name": "variety"})),
-        "acreage_reports": _records(acreage[["report_id", "operator_name", "farm_number", "match_method", "crop", "acres"]]),
-        "elevator_receipts": _records(receipts[["receipt_id", "seller_name", "elevator_id", "match_method", "crop", "bushels"]]),
-        "county_yield": _records(yields[["county", "state", "mean_yield", "std_yield"]])[0] if not yields.empty else None,
-        "yield_sigmas": YIELD_SIGMAS,
+        "google_client_id": auth.GOOGLE_CLIENT_ID,
+        "dev_login": auth.DEV_LOGIN,
+        "explanations_enabled": client is not None,
+        "provider": client.provider if client else None,
+        "model": client.model if client else None,
     }
 
 
-@app.get("/unmatched")
-def list_unmatched() -> list[dict]:
-    """External records that could not be linked to exactly one registered grower. Excluded from every score."""
-    return _records(RESOLVED["unmatched"])
+if WEB_DIST.is_dir():
+    app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
 
-
-@app.get("/config")
-def config() -> dict:
-    if EXPLAIN_CLIENT is None:
-        return {"explanations_enabled": False, "provider": None, "model": None}
-    return {"explanations_enabled": True, "provider": EXPLAIN_CLIENT.provider, "model": EXPLAIN_CLIENT.model}
-
-
-@app.post("/growers/{grower_id}/seasons/{season}/explanation")
-def grower_explanation(grower_id: str, season: int) -> dict:
-    """Plain-English reading of the evidence, written by the configured chat model. Never changes the score."""
-    if EXPLAIN_CLIENT is None:
-        raise HTTPException(status_code=503, detail="explanations are disabled; set TRUEACRE_LLM_PROVIDER to enable them")
-    evidence = grower_evidence(grower_id, season)
-    try:
-        return {"explanation": explain(evidence, EXPLAIN_CLIENT)}
-    except ExplainError as e:
-        raise HTTPException(status_code=502, detail=str(e))
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"{EXPLAIN_CLIENT.provider} returned {e.response.status_code}: {e.response.text[:300]}",
-        )
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"could not reach {EXPLAIN_CLIENT.provider} at {EXPLAIN_CLIENT.base_url}: {e}")
+    @app.get("/{path:path}", include_in_schema=False)
+    def spa(path: str):
+        """Serve the dashboard for every non-API path; the app handles its own views."""
+        if path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="no such endpoint")
+        return FileResponse(WEB_DIST / "index.html")

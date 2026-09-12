@@ -1,132 +1,58 @@
 import { useEffect, useState } from 'react'
-import { fetchConfig, fetchScores, fetchUnmatched } from './api.js'
-import Evidence from './Evidence.jsx'
-import { Label, fmt, pct } from './ui.jsx'
+import { api, AuthError } from './api.js'
+import Company from './Company.jsx'
+import Data from './Data.jsx'
+import Login from './Login.jsx'
+import Members from './Members.jsx'
+import Scores from './Scores.jsx'
 
-const LABELS = ['review recommended', 'insufficient data', 'consistent']
+const VIEWS = { scores: 'Scores', data: 'Data', members: 'Members' }
 
 export default function App() {
-  const [scores, setScores] = useState([])
-  const [unmatched, setUnmatched] = useState([])
-  const [showUnmatched, setShowUnmatched] = useState(false)
-  const [explain, setExplain] = useState({ explanations_enabled: false })
+  const [config, setConfig] = useState(null)
+  const [me, setMe] = useState(undefined) // undefined = loading, null = signed out
+  const [view, setView] = useState('scores')
   const [error, setError] = useState(null)
-  const [season, setSeason] = useState('')
-  const [county, setCounty] = useState('')
-  const [label, setLabel] = useState('')
-  const [selected, setSelected] = useState(null)
 
   useEffect(() => {
-    fetchScores().then(setScores).catch((e) => setError(e.message))
-    fetchUnmatched().then(setUnmatched).catch((e) => setError(e.message))
-    fetchConfig().then(setExplain).catch((e) => setError(e.message))
+    api.config().then(setConfig).catch((e) => setError(e.message))
+    api.me().then(setMe).catch((e) => (e instanceof AuthError ? setMe(null) : setError(e.message)))
   }, [])
 
-  const seasons = [...new Set(scores.map((s) => s.season))].sort()
-  const counties = [...new Set(scores.map((s) => s.county))].sort()
-  const rows = scores.filter(
-    (s) =>
-      (!season || s.season === Number(season)) &&
-      (!county || s.county === county) &&
-      (!label || s.label === label),
-  )
-  const isSelected = (r) => selected && selected.grower_id === r.grower_id && selected.season === r.season
+  const signOut = () => api.logout().then(() => setMe(null)).catch((e) => setError(e.message))
+
+  if (error) return <div className="app"><p className="error">{error}</p></div>
+  if (!config || me === undefined) return <div className="app"><p className="muted">Loading…</p></div>
+  if (!me) return <Login config={config} onSignedIn={setMe} />
+  if (!me.current_org) return <Company me={me} onChanged={setMe} onSignOut={signOut} />
+
+  const isAdmin = me.current_org.role === 'admin'
+  const views = isAdmin ? Object.keys(VIEWS) : Object.keys(VIEWS).filter((v) => v !== 'members')
 
   return (
     <div className="app">
-      <header>
-        <h1>TrueAcre</h1>
-        <p>
-          Fair-Play Scores per grower and season. A low score means more declared acres or delivered
-          bushels than the purchased seed can explain. The label says whether the data is complete
-          enough to draw any conclusion.
-        </p>
+      <header className="bar">
+        <div className="brand">
+          <h1>TrueAcre</h1>
+          <span className="muted">{me.current_org.name}</span>
+        </div>
+        <nav>
+          {views.map((v) => (
+            <button key={v} className={view === v ? 'tab active' : 'tab'} onClick={() => setView(v)}>
+              {VIEWS[v]}
+            </button>
+          ))}
+        </nav>
+        <div className="who">
+          <span>{me.user.name}</span>
+          <button className="link" onClick={() => setMe({ ...me, current_org: null })}>switch company</button>
+          <button className="link" onClick={signOut}>sign out</button>
+        </div>
       </header>
 
-      {error && <p className="error">Could not reach the API at localhost:8000. {error}</p>}
-
-      <div className="layout">
-        <section>
-          <div className="filters">
-            <select value={season} onChange={(e) => setSeason(e.target.value)}>
-              <option value="">All seasons</option>
-              {seasons.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <select value={county} onChange={(e) => setCounty(e.target.value)}>
-              <option value="">All counties</option>
-              {counties.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select value={label} onChange={(e) => setLabel(e.target.value)}>
-              <option value="">All labels</option>
-              {LABELS.map((l) => <option key={l} value={l}>{l}</option>)}
-            </select>
-            <span className="muted">{rows.length} grower-seasons</span>
-          </div>
-
-          <table>
-            <thead>
-              <tr>
-                <th className="num">Score</th>
-                <th>Label</th>
-                <th>Grower</th>
-                <th>County</th>
-                <th>Season</th>
-                <th className="num">Licensed ac</th>
-                <th className="num">Declared ac</th>
-                <th className="num">Coverage</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr
-                  key={`${r.grower_id}-${r.season}`}
-                  className={isSelected(r) ? 'selected' : ''}
-                  onClick={() => setSelected(r)}
-                >
-                  <td className="num">{r.fair_play_score}</td>
-                  <td><Label value={r.label} /></td>
-                  <td>{r.name} <span className="muted">{r.grower_id}</span></td>
-                  <td>{r.county}, {r.state}</td>
-                  <td>{r.season}</td>
-                  <td className="num">{fmt(r.licensed_acres)}</td>
-                  <td className="num">{fmt(r.declared_acres)}</td>
-                  <td className="num">{pct(r.coverage)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {unmatched.length > 0 && (
-            <p className="muted">
-              {unmatched.length} external records could not be linked to a registered grower with confidence
-              and are excluded from every score.{' '}
-              <button className="link" onClick={() => setShowUnmatched(!showUnmatched)}>
-                {showUnmatched ? 'hide' : 'show'}
-              </button>
-            </p>
-          )}
-          {showUnmatched && (
-            <table>
-              <thead><tr><th>Source</th><th>Record</th><th>Name on record</th><th>County</th><th>Reason</th></tr></thead>
-              <tbody>
-                {unmatched.map((u) => (
-                  <tr key={u.record_id}>
-                    <td>{u.source}</td><td>{u.record_id}</td><td>{u.name}</td><td>{u.county}</td><td>{u.reason}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
-
-        <aside>
-          {selected ? (
-            <Evidence growerId={selected.grower_id} season={selected.season} explain={explain} />
-          ) : (
-            <p className="muted">Select a grower to see the evidence behind the score.</p>
-          )}
-        </aside>
-      </div>
+      {view === 'scores' && <Scores config={config} onNeedData={() => setView('data')} />}
+      {view === 'data' && <Data />}
+      {view === 'members' && isAdmin && <Members me={me} />}
     </div>
   )
 }

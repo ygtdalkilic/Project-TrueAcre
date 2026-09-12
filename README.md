@@ -21,6 +21,12 @@ For every grower and season the engine runs three deterministic steps. No model,
 
 Real grower-level data is private, so the project ships a synthetic generator with seeded ghost-seed cases and innocent look-alikes as ground truth. The test suite requires zero false positives against it.
 
+# Accounts and companies
+
+TrueAcre is multi-tenant. Anyone can sign in with Google and create a company; they become its first admin. Admins invite colleagues by email as `admin` or `analyst`, and the invite turns into a membership the moment that person signs in. A company's data and scores are visible only to its members, and every API request is scoped to the company chosen in the session.
+
+Each company uploads seven CSV tables from the Data page: growers, dealers, varieties, seed purchases, acreage reports, elevator receipts, and county yields. Templates with the exact columns are downloadable there, uploads are validated with row-level error messages, and a one-click sample dataset exists for trying the product.
+
 # Running locally
 
 Everything runs on your machine with free tools. Requires Python 3.12+ and Node 20+.
@@ -29,10 +35,10 @@ Everything runs on your machine with free tools. Requires Python 3.12+ and Node 
 python -m venv .venv
 .venv\Scripts\activate          # Windows; on macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-pytest                           # engine, generator, resolver, and API tests
+pytest                           # engine, generator, resolver, auth, and API tests
 
-uvicorn api.main:app --reload    # API on http://localhost:8000
-                                 # add --env-file .env to load secrets such as GEMINI_API_KEY
+copy .env.example .env           # then edit; at minimum keep TRUEACRE_DEV_LOGIN=1 for local use
+uvicorn api.main:app --reload --env-file .env    # API on http://localhost:8000
 ```
 
 In a second terminal:
@@ -40,17 +46,21 @@ In a second terminal:
 ```
 cd web
 npm install
-npm run dev                      # dashboard on http://localhost:5173
+npm run dev                      # dashboard on http://localhost:5173, proxying /api to port 8000
 ```
 
-Optional settings, all with working defaults:
+Without a Google client ID the sign-in page offers a development sign-in by email, which only exists outside production. The database defaults to a local SQLite file.
+
+Settings, all read from the environment (put them in `.env`):
 
 | Variable | Purpose |
 |---|---|
-| `TRUEACRE_DATA_DIR` | Load CSVs from a directory (write one with `python -m data.generate`) instead of generating in memory |
-| `TRUEACRE_SEED` | RNG seed for the in-memory synthetic dataset |
-| `TRUEACRE_CORS_ORIGINS` | Comma-separated browser origins allowed to call the API |
-| `VITE_API_URL` | API base URL for the dashboard (put it in `web/.env`, see `web/.env.example`) |
+| `DATABASE_URL` | SQLAlchemy URL. Default `sqlite:///trueacre.db`; use `postgresql+psycopg://...` in the cloud |
+| `GOOGLE_CLIENT_ID` | OAuth web client ID from the Google Cloud console. Unset means Google sign-in is off |
+| `SESSION_SECRET` | Signs session cookies. Required in production; random per process otherwise |
+| `TRUEACRE_ENV` | `production` turns on HSTS and Secure cookies and disables dev login and API docs |
+| `TRUEACRE_DEV_LOGIN` | `1` enables email-only sign-in outside production |
+| `TRUEACRE_ALLOWED_HOSTS` | Comma-separated Host values the server answers to (default any) |
 | `TRUEACRE_LLM_PROVIDER` | Enables the optional "Explain in plain English" button. One of `gemini`, `openai`, `anthropic`, `ollama`, `lmstudio`, `custom`. Unset means the button is hidden and nothing is ever sent |
 | `TRUEACRE_LLM_MODEL` | Model name as that provider expects it. Required when a provider is set |
 | `TRUEACRE_LLM_BASE_URL` | Overrides the provider's endpoint. Required for `custom`; handy for an Ollama on another machine |
@@ -66,12 +76,38 @@ The button asks a chat model to restate the evidence for one grower and list the
 
 Keys live in a gitignored `.env`; start the API with `--env-file .env`.
 
+# Security
+
+What is in place, and what it does not cover.
+
+- **Sign-in.** Google ID tokens are verified server-side against Google's public keys, including audience, issuer, and expiry. Sessions are signed, HttpOnly, SameSite=Lax cookies that expire after seven days. "Sign out everywhere" invalidates every session at once.
+- **Authorization.** Every data endpoint is scoped to the company in the session. Admin-only actions check the role. A test proves one company cannot read another's data.
+- **Cross-site requests.** State-changing API calls must come from the same origin (Origin and Sec-Fetch-Site are checked) on top of the cookie's SameSite protection.
+- **Headers.** A Content Security Policy allows only the app's own files plus Google's sign-in button, and frames are refused. HSTS is on in production.
+- **Input.** Uploads are capped at 20 MB and 500,000 rows, must be UTF-8 CSV, and are validated column by column with typed errors. All database access is parameterized through SQLAlchemy.
+- **Abuse.** Sign-in attempts, uploads, and paid explanation calls are rate limited per server instance.
+- **Secrets.** Never in the repo or the image. Locally in `.env`; on Cloud Run in Secret Manager.
+
+Not covered: distributed rate limiting across instances, a web application firewall, audit logging of user actions, and backups beyond what Neon provides. No system is fully protected; report anything you find.
+
+# Deploying to Google Cloud Run
+
+The container builds the dashboard and serves it with the API from one process. Cloud Run terminates TLS.
+
+```
+gcloud run deploy trueacre --source . --region us-east5 --allow-unauthenticated \
+  --set-secrets DATABASE_URL=database-url:latest,SESSION_SECRET=session-secret:latest,GEMINI_API_KEY=gemini-api-key:latest \
+  --set-env-vars TRUEACRE_ENV=production,GOOGLE_CLIENT_ID=<client id>,TRUEACRE_LLM_PROVIDER=gemini,TRUEACRE_LLM_MODEL=gemini-3.8-flash
+```
+
+Create the three secrets in Secret Manager first. After the first deploy, add the service URL to the OAuth client's authorized JavaScript origins and set `TRUEACRE_ALLOWED_HOSTS` to the service hostname.
+
 # Layout
 
 ```
 data/     row schemas and the synthetic generator
-engine/   resolve, reconcile, score: pure functions over pandas tables
-api/      FastAPI endpoints for scores, per-grower evidence, and unmatched records
+engine/   resolve, reconcile, score: pure functions over pandas tables; optional explain
+api/      FastAPI: auth and sessions, companies and invites, CSV intake, per-company pipeline, scores
 web/      React + Vite dashboard
-tests/    pytest suite, run against synthetic ground truth
+tests/    pytest suite, run against synthetic ground truth and a throwaway SQLite database
 ```
