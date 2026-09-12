@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchScores, fetchUnmatched } from './api.js'
+import { fetchConfig, fetchScores, fetchUnmatched } from './api.js'
 import Evidence from './Evidence.jsx'
 import { Label, fmt, pct } from './ui.jsx'
 
@@ -9,6 +9,7 @@ export default function App() {
   const [scores, setScores] = useState([])
   const [unmatched, setUnmatched] = useState([])
   const [showUnmatched, setShowUnmatched] = useState(false)
+  const [explainEnabled, setExplainEnabled] = useState(false)
   const [error, setError] = useState(null)
   const [season, setSeason] = useState('')
   const [county, setCounty] = useState('')
@@ -18,6 +19,7 @@ export default function App() {
   useEffect(() => {
     fetchScores().then(setScores).catch((e) => setError(e.message))
     fetchUnmatched().then(setUnmatched).catch((e) => setError(e.message))
+    fetchConfig().then((c) => setExplainEnabled(c.explanations_enabled)).catch((e) => setError(e.message))
   }, [])
 
   const seasons = [...new Set(scores.map((s) => s.season))].sort()
@@ -119,7 +121,7 @@ export default function App() {
 
         <aside>
           {selected ? (
-            <Evidence growerId={selected.grower_id} season={selected.season} />
+            <Evidence growerId={selected.grower_id} season={selected.season} explainEnabled={explainEnabled} />
           ) : (
             <p className="muted">Select a grower to see the evidence behind the score.</p>
           )}

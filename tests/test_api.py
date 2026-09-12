@@ -1,9 +1,14 @@
+import json
+from types import SimpleNamespace
+
 import pytest
 from fastapi.testclient import TestClient
 
+import api.main as main
 from api.main import RESOLVED, TABLES, app
 from engine.reconcile import YIELD_SIGMAS
 from engine.score import REVIEW
+from tests.test_explain import FakeClient, fake_response
 
 client = TestClient(app)
 TRUTH = TABLES["ground_truth"]
@@ -51,3 +56,23 @@ def test_unmatched_records_are_listed():
     rows = client.get("/unmatched").json()
     assert len(rows) == len(RESOLVED["unmatched"])
     assert list(RESOLVED["unmatched"].columns) == ["source", "record_id", "name", "county", "reason"]
+
+
+def test_explanations_disabled_without_a_key(monkeypatch):
+    monkeypatch.setattr(main, "EXPLAIN_CLIENT", None)
+    row = TRUTH.iloc[0]
+    assert client.get("/config").json() == {"explanations_enabled": False}
+    assert client.post(f"/growers/{row.grower_id}/seasons/{row.season}/explanation").status_code == 503
+
+
+def test_explanation_is_written_from_the_evidence(monkeypatch):
+    fake = FakeClient(fake_response(blocks=[SimpleNamespace(type="text", text="Plain words.")]))
+    monkeypatch.setattr(main, "EXPLAIN_CLIENT", fake)
+    row = TRUTH.iloc[0]
+    assert client.get("/config").json() == {"explanations_enabled": True}
+
+    body = client.post(f"/growers/{row.grower_id}/seasons/{row.season}/explanation").json()
+    assert body == {"explanation": "Plain words."}
+    sent = json.loads(fake.messages.calls[0]["messages"][0]["content"])
+    assert sent == client.get(f"/growers/{row.grower_id}/seasons/{row.season}").json()
+    assert client.post("/growers/NOPE/seasons/2024/explanation").status_code == 404

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchEvidence } from './api.js'
+import { fetchEvidence, fetchExplanation } from './api.js'
 import { Label, fmt, pct } from './ui.jsx'
 
 function conclusion(s) {
@@ -15,15 +15,29 @@ function conclusion(s) {
   return 'There is a gap and dealer coverage is high, so unseen purchases are unlikely. The evidence above warrants a review.'
 }
 
-export default function Evidence({ growerId, season }) {
+export default function Evidence({ growerId, season, explainEnabled }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
+  const [explanation, setExplanation] = useState(null)
+  const [explaining, setExplaining] = useState(false)
+  const [explainError, setExplainError] = useState(null)
 
   useEffect(() => {
     setData(null)
     setError(null)
+    setExplanation(null)
+    setExplainError(null)
     fetchEvidence(growerId, season).then(setData).catch((e) => setError(e.message))
   }, [growerId, season])
+
+  const requestExplanation = () => {
+    setExplaining(true)
+    setExplainError(null)
+    fetchExplanation(growerId, season)
+      .then((r) => setExplanation(r.explanation))
+      .catch((e) => setExplainError(e.message))
+      .finally(() => setExplaining(false))
+  }
 
   if (error) return <p className="error">{error}</p>
   if (!data) return <p className="muted">Loading…</p>
@@ -123,6 +137,20 @@ export default function Evidence({ growerId, season }) {
         Fair-Play Score = 100 × (1 − {pct(s.gap_fraction)}) = <b>{s.fair_play_score}</b>
       </p>
       <p>{conclusion(s)}</p>
+
+      {explainEnabled && !explanation && (
+        <button className="primary" onClick={requestExplanation} disabled={explaining}>
+          {explaining ? 'Writing…' : 'Explain in plain English'}
+        </button>
+      )}
+      {explainError && <p className="error">{explainError}</p>}
+      {explanation && (
+        <>
+          <h3>Plain-English reading</h3>
+          <p className="explanation">{explanation}</p>
+          <p className="muted">Written by Claude from the evidence above. It does not change the score.</p>
+        </>
+      )}
     </div>
   )
 }
