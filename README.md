@@ -49,8 +49,20 @@ Optional settings, all with working defaults:
 | `TRUEACRE_SEED` | RNG seed for the in-memory synthetic dataset |
 | `TRUEACRE_CORS_ORIGINS` | Comma-separated browser origins allowed to call the API |
 | `VITE_API_URL` | API base URL for the dashboard (put it in `web/.env`, see `web/.env.example`) |
-| `GEMINI_API_KEY` | Enables the optional "Explain in plain English" button, which asks Gemini to restate the evidence and list innocent explanations to rule out. Free on the Gemini API free tier; unset means the button is hidden and nothing is ever sent. Put it in a gitignored `.env` (see `.env.example`) and start the API with `--env-file .env` |
-| `TRUEACRE_EXPLAIN_MODEL` | Gemini model for explanations (default `gemini-3.8-flash`) |
+| `TRUEACRE_LLM_PROVIDER` | Enables the optional "Explain in plain English" button. One of `gemini`, `openai`, `anthropic`, `ollama`, `lmstudio`, `custom`. Unset means the button is hidden and nothing is ever sent |
+| `TRUEACRE_LLM_MODEL` | Model name as that provider expects it. Required when a provider is set |
+| `TRUEACRE_LLM_BASE_URL` | Overrides the provider's endpoint. Required for `custom`; handy for an Ollama on another machine |
+| `TRUEACRE_LLM_API_KEY` | Overrides the provider's own key variable (`GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`). Local servers need none |
+
+# Plain-English explanations (optional)
+
+The button asks a chat model to restate the evidence for one grower and list the innocent explanations an analyst must rule out. It never changes the score. The client speaks the OpenAI-compatible chat completions API over plain HTTP, so any provider that exposes it works, cloud or local, with no vendor SDK.
+
+- **Cloud, free tier:** the Gemini block in `.env.example`.
+- **Fully local, nothing leaves your machine:** install [Ollama](https://ollama.com), run `ollama pull <model>`, then set `TRUEACRE_LLM_PROVIDER=ollama` and `TRUEACRE_LLM_MODEL=<model>`. LM Studio works the same way with `lmstudio`.
+- **Anything else** that speaks the same API (llama.cpp, vLLM, OpenRouter): `custom` plus `TRUEACRE_LLM_BASE_URL`.
+
+Keys live in a gitignored `.env`; start the API with `--env-file .env`.
 
 # Layout
 

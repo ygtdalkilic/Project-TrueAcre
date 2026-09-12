@@ -5,9 +5,10 @@ from fastapi.testclient import TestClient
 
 import api.main as main
 from api.main import RESOLVED, TABLES, app
+from engine.explain import LLMClient
 from engine.reconcile import YIELD_SIGMAS
 from engine.score import REVIEW
-from tests.test_explain import FakeClient, fake_response
+from tests.test_explain import fake_server
 
 client = TestClient(app)
 TRUTH = TABLES["ground_truth"]
@@ -57,21 +58,34 @@ def test_unmatched_records_are_listed():
     assert list(RESOLVED["unmatched"].columns) == ["source", "record_id", "name", "county", "reason"]
 
 
-def test_explanations_disabled_without_a_key(monkeypatch):
+def _fake_llm(monkeypatch, **server):
+    transport, seen = fake_server(**server)
+    monkeypatch.setattr(main, "EXPLAIN_CLIENT", LLMClient("custom", "http://fake/v1", "test-model", transport=transport))
+    return seen
+
+
+def test_explanations_disabled_without_a_provider(monkeypatch):
     monkeypatch.setattr(main, "EXPLAIN_CLIENT", None)
     row = TRUTH.iloc[0]
-    assert client.get("/config").json() == {"explanations_enabled": False}
+    assert client.get("/config").json() == {"explanations_enabled": False, "provider": None, "model": None}
     assert client.post(f"/growers/{row.grower_id}/seasons/{row.season}/explanation").status_code == 503
 
 
 def test_explanation_is_written_from_the_evidence(monkeypatch):
-    fake = FakeClient(fake_response(text="Plain words."))
-    monkeypatch.setattr(main, "EXPLAIN_CLIENT", fake)
+    seen = _fake_llm(monkeypatch, reply="Plain words.")
     row = TRUTH.iloc[0]
-    assert client.get("/config").json() == {"explanations_enabled": True}
+    assert client.get("/config").json() == {"explanations_enabled": True, "provider": "custom", "model": "test-model"}
 
     body = client.post(f"/growers/{row.grower_id}/seasons/{row.season}/explanation").json()
     assert body == {"explanation": "Plain words."}
-    sent = json.loads(fake.models.calls[0]["contents"])
+    sent = json.loads(json.loads(seen[0].content)["messages"][1]["content"])
     assert sent == client.get(f"/growers/{row.grower_id}/seasons/{row.season}").json()
     assert client.post("/growers/NOPE/seasons/2024/explanation").status_code == 404
+
+
+def test_upstream_failure_is_a_502_with_the_reason(monkeypatch):
+    _fake_llm(monkeypatch, status=500)
+    row = TRUTH.iloc[0]
+    response = client.post(f"/growers/{row.grower_id}/seasons/{row.season}/explanation")
+    assert response.status_code == 502
+    assert "custom returned 500" in response.json()["detail"]

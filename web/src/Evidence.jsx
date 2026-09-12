@@ -15,7 +15,7 @@ function conclusion(s) {
   return 'There is a gap and dealer coverage is high, so unseen purchases are unlikely. The evidence above warrants a review.'
 }
 
-export default function Evidence({ growerId, season, explainEnabled }) {
+export default function Evidence({ growerId, season, explain }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
   const [explanation, setExplanation] = useState(null)
@@ -138,7 +138,7 @@ export default function Evidence({ growerId, season, explainEnabled }) {
       </p>
       <p>{conclusion(s)}</p>
 
-      {explainEnabled && !explanation && (
+      {explain.explanations_enabled && !explanation && (
         <button className="primary" onClick={requestExplanation} disabled={explaining}>
           {explaining ? 'Writing…' : 'Explain in plain English'}
         </button>
@@ -148,7 +148,9 @@ export default function Evidence({ growerId, season, explainEnabled }) {
         <>
           <h3>Plain-English reading</h3>
           <p className="explanation">{explanation}</p>
-          <p className="muted">Written by Gemini from the evidence above. It does not change the score.</p>
+          <p className="muted">
+            Written by {explain.model} via {explain.provider} from the evidence above. It does not change the score.
+          </p>
         </>
       )}
     </div>

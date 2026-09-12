@@ -1,23 +1,36 @@
-"""Optional plain-English explanation of one grower-season, written by Gemini.
+"""Optional plain-English explanation of one grower-season, written by any chat model.
+
+Provider-agnostic: talks to the OpenAI-compatible chat completions endpoint that Gemini, OpenAI,
+Anthropic, Ollama, LM Studio, llama.cpp, vLLM and most other servers expose, over plain HTTP.
+No vendor SDK, so switching provider, or running a model locally, is configuration only.
 
 Off the scoring path by design: the score and label are computed before this runs and are
 never changed by it. The model only restates the evidence and lists what an analyst should
 rule out before acting on it.
 
-Enabled only when GEMINI_API_KEY is set (see api/main.py). Each call sends roughly 1.5K input
-tokens and returns at most MAX_TOKENS output tokens. On the Gemini API free tier that costs
-nothing; on a paid project it is a fraction of a cent with the default Flash model.
-Override the model with TRUEACRE_EXPLAIN_MODEL.
+Configuration (environment variables; unset TRUEACRE_LLM_PROVIDER = explanations disabled):
+  TRUEACRE_LLM_PROVIDER  a key of PROVIDERS below
+  TRUEACRE_LLM_MODEL     model name exactly as that provider expects it
+  TRUEACRE_LLM_BASE_URL  overrides the provider's base URL (required for "custom"; handy for a remote Ollama)
+  TRUEACRE_LLM_API_KEY   overrides the provider's key variable; local servers need no key
 """
 import json
 import os
+from dataclasses import dataclass
 
-from google import genai
-from google.genai import types
+import httpx
 
-MODEL = os.environ.get("TRUEACRE_EXPLAIN_MODEL", "gemini-3.8-flash")
-MAX_TOKENS = 1024  # explanations are short by design
+PROVIDERS = {  # provider -> (OpenAI-compatible base URL, environment variable holding its API key)
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "GEMINI_API_KEY"),
+    "openai": ("https://api.openai.com/v1", "OPENAI_API_KEY"),
+    "anthropic": ("https://api.anthropic.com/v1", "ANTHROPIC_API_KEY"),  # not exercised by this repo's tests
+    "ollama": ("http://localhost:11434/v1", None),
+    "lmstudio": ("http://localhost:1234/v1", None),
+    "custom": (None, None),
+}
+MAX_TOKENS = 2048  # explanations are short; the headroom is for models that count thinking tokens here
 TEMPERATURE = 0.2  # restating given numbers should be steady, not creative
+TIMEOUT = 120.0  # seconds; a local model on a laptop can take a while
 
 SYSTEM = """You write for a compliance analyst at a seed company. You receive JSON evidence about one
 grower and one season: seed purchases, the acreage report, elevator receipts, the county yield
@@ -38,24 +51,51 @@ class ExplainError(RuntimeError):
     """The model did not return usable text."""
 
 
-def explain(evidence: dict, client: genai.Client) -> str:
+@dataclass
+class LLMClient:
+    """Minimal chat-completions client. `transport` exists so tests can stand in for the server."""
+
+    provider: str
+    base_url: str
+    model: str
+    api_key: str | None = None
+    transport: httpx.BaseTransport | None = None
+
+    @classmethod
+    def from_env(cls) -> "LLMClient | None":
+        provider = os.environ.get("TRUEACRE_LLM_PROVIDER")
+        if not provider:
+            return None
+        if provider not in PROVIDERS:
+            raise ValueError(f"TRUEACRE_LLM_PROVIDER must be one of {sorted(PROVIDERS)}, not {provider!r}")
+        model = os.environ.get("TRUEACRE_LLM_MODEL")
+        if not model:
+            raise ValueError("TRUEACRE_LLM_MODEL is required when TRUEACRE_LLM_PROVIDER is set")
+        default_url, key_var = PROVIDERS[provider]
+        base_url = os.environ.get("TRUEACRE_LLM_BASE_URL") or default_url
+        if not base_url:
+            raise ValueError("TRUEACRE_LLM_BASE_URL is required for the custom provider")
+        api_key = os.environ.get("TRUEACRE_LLM_API_KEY") or (os.environ.get(key_var) if key_var else None)
+        return cls(provider, base_url.rstrip("/"), model, api_key)
+
+    def complete(self, system: str, user: str) -> str:
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        body = {
+            "model": self.model,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "max_tokens": MAX_TOKENS,
+            "temperature": TEMPERATURE,
+        }
+        with httpx.Client(timeout=TIMEOUT, transport=self.transport) as http:
+            response = http.post(f"{self.base_url}/chat/completions", json=body, headers=headers)
+        response.raise_for_status()
+        choice = response.json()["choices"][0]
+        text = (choice["message"].get("content") or "").strip()
+        if not text:
+            raise ExplainError(f"the model returned no text (finish reason: {choice.get('finish_reason')})")
+        return text
+
+
+def explain(evidence: dict, client: LLMClient) -> str:
     """Return a plain-English explanation of an evidence bundle from the API's grower endpoint."""
-    response = client.models.generate_content(
-        model=MODEL,
-        contents=json.dumps(evidence, indent=1, sort_keys=True),
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM, max_output_tokens=MAX_TOKENS, temperature=TEMPERATURE
-        ),
-    )
-    text = (response.text or "").strip()
-    if not text:
-        raise ExplainError(f"the model returned no text (finish reason: {_finish_reason(response)})")
-    return text
-
-
-def _finish_reason(response) -> str | None:
-    if response.candidates:
-        return str(response.candidates[0].finish_reason)
-    if response.prompt_feedback:
-        return str(response.prompt_feedback.block_reason)
-    return None
+    return client.complete(SYSTEM, json.dumps(evidence, indent=1, sort_keys=True))

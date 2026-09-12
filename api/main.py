@@ -4,9 +4,8 @@ Configuration (environment variables, all optional):
   TRUEACRE_DATA_DIR      directory of CSVs written by `python -m data.generate`; unset = generate in memory
   TRUEACRE_SEED          RNG seed for in-memory generation (default: data.generate.DEFAULT_SEED)
   TRUEACRE_CORS_ORIGINS  comma-separated browser origins allowed to call the API (default: Vite dev server)
-  GEMINI_API_KEY         enables plain-English explanations via the Gemini API (free tier available;
-                         see engine/explain.py); unset = explanations disabled
-  TRUEACRE_EXPLAIN_MODEL model used for explanations (default in engine/explain.py)
+  TRUEACRE_LLM_PROVIDER  enables plain-English explanations: gemini, openai, anthropic, ollama, lmstudio,
+                         or custom (see engine/explain.py for the companion variables); unset = disabled
 
 Put secrets in a gitignored .env and start with: uvicorn api.main:app --reload --env-file .env
 
@@ -19,14 +18,13 @@ Run: uvicorn api.main:app --reload
 import os
 from pathlib import Path
 
+import httpx
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from google import genai
-from google.genai import errors as genai_errors
 
 from data.generate import DEFAULT_SEED, generate, load_csvs
-from engine.explain import ExplainError, explain
+from engine.explain import ExplainError, LLMClient, explain
 from engine.reconcile import YIELD_SIGMAS, reconcile
 from engine.resolve import resolve
 from engine.score import score
@@ -34,8 +32,8 @@ from engine.score import score
 DATA_DIR = os.environ.get("TRUEACRE_DATA_DIR")
 SEED = int(os.environ.get("TRUEACRE_SEED", DEFAULT_SEED))
 CORS_ORIGINS = os.environ.get("TRUEACRE_CORS_ORIGINS", "http://localhost:5173").split(",")
-# Explanations call an external API, so they are off unless a key is present; the dashboard hides the button.
-EXPLAIN_CLIENT = genai.Client() if os.environ.get("GEMINI_API_KEY") else None
+# Explanations call a chat model, cloud or local; off unless a provider is configured. The dashboard hides the button.
+EXPLAIN_CLIENT = LLMClient.from_env()
 
 app = FastAPI(title="TrueAcre")
 app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_methods=["*"], allow_headers=["*"])
@@ -114,18 +112,25 @@ def list_unmatched() -> list[dict]:
 
 @app.get("/config")
 def config() -> dict:
-    return {"explanations_enabled": EXPLAIN_CLIENT is not None}
+    if EXPLAIN_CLIENT is None:
+        return {"explanations_enabled": False, "provider": None, "model": None}
+    return {"explanations_enabled": True, "provider": EXPLAIN_CLIENT.provider, "model": EXPLAIN_CLIENT.model}
 
 
 @app.post("/growers/{grower_id}/seasons/{season}/explanation")
 def grower_explanation(grower_id: str, season: int) -> dict:
-    """Plain-English reading of the evidence, written by Gemini. Never changes the score."""
+    """Plain-English reading of the evidence, written by the configured chat model. Never changes the score."""
     if EXPLAIN_CLIENT is None:
-        raise HTTPException(status_code=503, detail="explanations are disabled; set GEMINI_API_KEY to enable them")
+        raise HTTPException(status_code=503, detail="explanations are disabled; set TRUEACRE_LLM_PROVIDER to enable them")
     evidence = grower_evidence(grower_id, season)
     try:
         return {"explanation": explain(evidence, EXPLAIN_CLIENT)}
     except ExplainError as e:
         raise HTTPException(status_code=502, detail=str(e))
-    except genai_errors.APIError as e:
-        raise HTTPException(status_code=502, detail=f"Gemini API error: {e}")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"{EXPLAIN_CLIENT.provider} returned {e.response.status_code}: {e.response.text[:300]}",
+        )
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"could not reach {EXPLAIN_CLIENT.provider} at {EXPLAIN_CLIENT.base_url}: {e}")
