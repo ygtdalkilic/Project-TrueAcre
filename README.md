@@ -1,5 +1,7 @@
 # Project-TrueAcre
 Protecting Seed Licensing Through Fair-Play Agronomic Analytics
+
+[![CI](https://github.com/ygtdalkilic/Project-TrueAcre/actions/workflows/ci.yml/badge.svg)](https://github.com/ygtdalkilic/Project-TrueAcre/actions/workflows/ci.yml)
 # Description:
 Seed companies spend millions developing drought-resistant, high-yield genetics, and farmers sign a Grower Technology Agreement promising to plant those seeds only once. But enforcing that license often relies on neighbor-against-neighbor tip lines, private investigators, or random, stressful field audits. It creates an environment of suspicion rather than partnership.
 
