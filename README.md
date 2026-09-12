@@ -48,6 +48,8 @@ Optional settings, all with working defaults:
 | `TRUEACRE_SEED` | RNG seed for the in-memory synthetic dataset |
 | `TRUEACRE_CORS_ORIGINS` | Comma-separated browser origins allowed to call the API |
 | `VITE_API_URL` | API base URL for the dashboard (put it in `web/.env`, see `web/.env.example`) |
+| `ANTHROPIC_API_KEY` | Enables the optional "Explain in plain English" button, which asks Claude to restate the evidence and list innocent explanations to rule out. Costs money per click (about $0.02 on the default model); unset means the button is hidden and nothing is ever sent |
+| `TRUEACRE_EXPLAIN_MODEL` | Claude model for explanations (default `claude-opus-5`) |
 
 # Layout
 
