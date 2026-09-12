@@ -25,5 +25,5 @@ Email the maintainer at ygtdalkilic@gmail.com with the subject "TrueAcre securit
 
 1. Rotate it at the source: Neon for the database password, Google AI Studio for the Gemini key, or generate a new value for `SESSION_SECRET` and `DATA_ENCRYPTION_KEY`.
 2. Add a new version in Secret Manager: `printf '%s' "<value>" | gcloud secrets versions add <name> --data-file=-`.
-3. Redeploy so the new version is picked up: `gcloud run deploy trueacre --source . --region us-east5`.
+3. Redeploy so the new version is picked up: `gcloud run deploy trueacre --source . --region us-east1`.
 4. Rotating `SESSION_SECRET` signs every user out. Rotating `DATA_ENCRYPTION_KEY` makes existing uploads unreadable; companies must re-upload. Rotate that one only if it has actually leaked.

@@ -98,7 +98,7 @@ Not covered: distributed rate limiting across instances, a web application firew
 The container builds the dashboard and serves it with the API from one process. Cloud Run terminates TLS.
 
 ```
-gcloud run deploy trueacre --source . --region us-east5 --allow-unauthenticated \
+gcloud run deploy trueacre --source . --region us-east1 --allow-unauthenticated \
   --set-secrets DATABASE_URL=database-url:latest,SESSION_SECRET=session-secret:latest,DATA_ENCRYPTION_KEY=data-encryption-key:latest,GEMINI_API_KEY=gemini-api-key:latest \
   --set-env-vars TRUEACRE_ENV=production,GOOGLE_CLIENT_ID=<client id>,TRUEACRE_LLM_PROVIDER=gemini,TRUEACRE_LLM_MODEL=gemini-3.8-flash
 ```
