@@ -4,9 +4,11 @@ Configuration (environment variables, all optional):
   TRUEACRE_DATA_DIR      directory of CSVs written by `python -m data.generate`; unset = generate in memory
   TRUEACRE_SEED          RNG seed for in-memory generation (default: data.generate.DEFAULT_SEED)
   TRUEACRE_CORS_ORIGINS  comma-separated browser origins allowed to call the API (default: Vite dev server)
-  ANTHROPIC_API_KEY      enables plain-English explanations via the Claude API (costs money per call;
+  GEMINI_API_KEY         enables plain-English explanations via the Gemini API (free tier available;
                          see engine/explain.py); unset = explanations disabled
   TRUEACRE_EXPLAIN_MODEL model used for explanations (default in engine/explain.py)
+
+Put secrets in a gitignored .env and start with: uvicorn api.main:app --reload --env-file .env
 
 Pipeline: resolve (link external records to growers) -> reconcile -> score.
 Explanations are a separate, optional step that reads the evidence and never changes a score.
@@ -17,10 +19,11 @@ Run: uvicorn api.main:app --reload
 import os
 from pathlib import Path
 
-import anthropic
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from google import genai
+from google.genai import errors as genai_errors
 
 from data.generate import DEFAULT_SEED, generate, load_csvs
 from engine.explain import ExplainError, explain
@@ -31,8 +34,8 @@ from engine.score import score
 DATA_DIR = os.environ.get("TRUEACRE_DATA_DIR")
 SEED = int(os.environ.get("TRUEACRE_SEED", DEFAULT_SEED))
 CORS_ORIGINS = os.environ.get("TRUEACRE_CORS_ORIGINS", "http://localhost:5173").split(",")
-# Explanations call a paid API, so they are off unless a key is present; the dashboard hides the button.
-EXPLAIN_CLIENT = anthropic.Anthropic() if os.environ.get("ANTHROPIC_API_KEY") else None
+# Explanations call an external API, so they are off unless a key is present; the dashboard hides the button.
+EXPLAIN_CLIENT = genai.Client() if os.environ.get("GEMINI_API_KEY") else None
 
 app = FastAPI(title="TrueAcre")
 app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS, allow_methods=["*"], allow_headers=["*"])
@@ -116,13 +119,13 @@ def config() -> dict:
 
 @app.post("/growers/{grower_id}/seasons/{season}/explanation")
 def grower_explanation(grower_id: str, season: int) -> dict:
-    """Plain-English reading of the evidence, written by Claude. Never changes the score."""
+    """Plain-English reading of the evidence, written by Gemini. Never changes the score."""
     if EXPLAIN_CLIENT is None:
-        raise HTTPException(status_code=503, detail="explanations are disabled; set ANTHROPIC_API_KEY to enable them")
+        raise HTTPException(status_code=503, detail="explanations are disabled; set GEMINI_API_KEY to enable them")
     evidence = grower_evidence(grower_id, season)
     try:
         return {"explanation": explain(evidence, EXPLAIN_CLIENT)}
     except ExplainError as e:
         raise HTTPException(status_code=502, detail=str(e))
-    except (anthropic.APIConnectionError, anthropic.APIStatusError) as e:
-        raise HTTPException(status_code=502, detail=f"Claude API error: {e}")
+    except genai_errors.APIError as e:
+        raise HTTPException(status_code=502, detail=f"Gemini API error: {e}")

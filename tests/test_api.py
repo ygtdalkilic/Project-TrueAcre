@@ -1,5 +1,4 @@
 import json
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -66,13 +65,13 @@ def test_explanations_disabled_without_a_key(monkeypatch):
 
 
 def test_explanation_is_written_from_the_evidence(monkeypatch):
-    fake = FakeClient(fake_response(blocks=[SimpleNamespace(type="text", text="Plain words.")]))
+    fake = FakeClient(fake_response(text="Plain words."))
     monkeypatch.setattr(main, "EXPLAIN_CLIENT", fake)
     row = TRUTH.iloc[0]
     assert client.get("/config").json() == {"explanations_enabled": True}
 
     body = client.post(f"/growers/{row.grower_id}/seasons/{row.season}/explanation").json()
     assert body == {"explanation": "Plain words."}
-    sent = json.loads(fake.messages.calls[0]["messages"][0]["content"])
+    sent = json.loads(fake.models.calls[0]["contents"])
     assert sent == client.get(f"/growers/{row.grower_id}/seasons/{row.season}").json()
     assert client.post("/growers/NOPE/seasons/2024/explanation").status_code == 404

@@ -148,7 +148,7 @@ export default function Evidence({ growerId, season, explainEnabled }) {
         <>
           <h3>Plain-English reading</h3>
           <p className="explanation">{explanation}</p>
-          <p className="muted">Written by Claude from the evidence above. It does not change the score.</p>
+          <p className="muted">Written by Gemini from the evidence above. It does not change the score.</p>
         </>
       )}
     </div>

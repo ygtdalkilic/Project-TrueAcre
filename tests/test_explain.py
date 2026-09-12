@@ -6,47 +6,40 @@ import pytest
 from engine.explain import MODEL, ExplainError, explain
 
 
-class FakeMessages:
+class FakeModels:
     def __init__(self, response):
         self.response = response
         self.calls = []
 
-    def create(self, **kwargs):
+    def generate_content(self, **kwargs):
         self.calls.append(kwargs)
         return self.response
 
 
 class FakeClient:
-    """Stands in for anthropic.Anthropic so no test ever touches the network."""
+    """Stands in for google.genai.Client so no test ever touches the network."""
 
     def __init__(self, response):
-        self.messages = FakeMessages(response)
+        self.models = FakeModels(response)
 
 
-def fake_response(stop_reason="end_turn", blocks=()):
-    return SimpleNamespace(stop_reason=stop_reason, content=list(blocks))
+def fake_response(text=None, finish_reason=None):
+    candidates = [SimpleNamespace(finish_reason=finish_reason)] if finish_reason else []
+    return SimpleNamespace(text=text, candidates=candidates, prompt_feedback=None)
 
 
 EVIDENCE = {"score": {"grower_id": "G0001", "season": 2024, "label": "review recommended"}, "purchases": []}
 
 
 def test_explain_sends_evidence_and_returns_text():
-    client = FakeClient(fake_response(blocks=[
-        SimpleNamespace(type="thinking", thinking=""),
-        SimpleNamespace(type="text", text="  Plain words.  "),
-    ]))
+    client = FakeClient(fake_response(text="  Plain words.  "))
     assert explain(EVIDENCE, client) == "Plain words."
-    call = client.messages.calls[0]
+    call = client.models.calls[0]
     assert call["model"] == MODEL
-    assert json.loads(call["messages"][0]["content"]) == EVIDENCE
-    assert "not a verdict" in call["system"]
+    assert json.loads(call["contents"]) == EVIDENCE
+    assert "not a verdict" in call["config"].system_instruction
 
 
-def test_refusal_raises():
-    with pytest.raises(ExplainError):
-        explain(EVIDENCE, FakeClient(fake_response(stop_reason="refusal")))
-
-
-def test_empty_text_raises():
-    with pytest.raises(ExplainError):
-        explain(EVIDENCE, FakeClient(fake_response(blocks=[])))
+def test_empty_text_raises_with_finish_reason():
+    with pytest.raises(ExplainError, match="SAFETY"):
+        explain(EVIDENCE, FakeClient(fake_response(text=None, finish_reason="SAFETY")))

@@ -30,6 +30,7 @@ pip install -r requirements.txt
 pytest                           # engine, generator, resolver, and API tests
 
 uvicorn api.main:app --reload    # API on http://localhost:8000
+                                 # add --env-file .env to load secrets such as GEMINI_API_KEY
 ```
 
 In a second terminal:
@@ -48,8 +49,8 @@ Optional settings, all with working defaults:
 | `TRUEACRE_SEED` | RNG seed for the in-memory synthetic dataset |
 | `TRUEACRE_CORS_ORIGINS` | Comma-separated browser origins allowed to call the API |
 | `VITE_API_URL` | API base URL for the dashboard (put it in `web/.env`, see `web/.env.example`) |
-| `ANTHROPIC_API_KEY` | Enables the optional "Explain in plain English" button, which asks Claude to restate the evidence and list innocent explanations to rule out. Costs money per click (about $0.02 on the default model); unset means the button is hidden and nothing is ever sent |
-| `TRUEACRE_EXPLAIN_MODEL` | Claude model for explanations (default `claude-opus-5`) |
+| `GEMINI_API_KEY` | Enables the optional "Explain in plain English" button, which asks Gemini to restate the evidence and list innocent explanations to rule out. Free on the Gemini API free tier; unset means the button is hidden and nothing is ever sent. Put it in a gitignored `.env` (see `.env.example`) and start the API with `--env-file .env` |
+| `TRUEACRE_EXPLAIN_MODEL` | Gemini model for explanations (default `gemini-3.8-flash`) |
 
 # Layout
 

@@ -1,21 +1,23 @@
-"""Optional plain-English explanation of one grower-season, written by Claude.
+"""Optional plain-English explanation of one grower-season, written by Gemini.
 
 Off the scoring path by design: the score and label are computed before this runs and are
 never changed by it. The model only restates the evidence and lists what an analyst should
 rule out before acting on it.
 
-Enabled only when ANTHROPIC_API_KEY is set (see api/main.py). Each call sends roughly 1.5K
-input tokens and returns at most MAX_TOKENS output tokens; at claude-opus-5 rates that is
-about $0.02 per explanation. Override the model with TRUEACRE_EXPLAIN_MODEL.
+Enabled only when GEMINI_API_KEY is set (see api/main.py). Each call sends roughly 1.5K input
+tokens and returns at most MAX_TOKENS output tokens. On the Gemini API free tier that costs
+nothing; on a paid project it is a fraction of a cent with the default Flash model.
+Override the model with TRUEACRE_EXPLAIN_MODEL.
 """
 import json
 import os
 
-import anthropic
+from google import genai
+from google.genai import types
 
-MODEL = os.environ.get("TRUEACRE_EXPLAIN_MODEL", "claude-opus-5")
+MODEL = os.environ.get("TRUEACRE_EXPLAIN_MODEL", "gemini-3.8-flash")
 MAX_TOKENS = 1024  # explanations are short by design
-EFFORT = "low"  # restating given numbers needs no deep reasoning
+TEMPERATURE = 0.2  # restating given numbers should be steady, not creative
 
 SYSTEM = """You write for a compliance analyst at a seed company. You receive JSON evidence about one
 grower and one season: seed purchases, the acreage report, elevator receipts, the county yield
@@ -36,18 +38,24 @@ class ExplainError(RuntimeError):
     """The model did not return usable text."""
 
 
-def explain(evidence: dict, client: anthropic.Anthropic) -> str:
+def explain(evidence: dict, client: genai.Client) -> str:
     """Return a plain-English explanation of an evidence bundle from the API's grower endpoint."""
-    response = client.messages.create(
+    response = client.models.generate_content(
         model=MODEL,
-        max_tokens=MAX_TOKENS,
-        system=SYSTEM,
-        output_config={"effort": EFFORT},
-        messages=[{"role": "user", "content": json.dumps(evidence, indent=1, sort_keys=True)}],
+        contents=json.dumps(evidence, indent=1, sort_keys=True),
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM, max_output_tokens=MAX_TOKENS, temperature=TEMPERATURE
+        ),
     )
-    if response.stop_reason == "refusal":
-        raise ExplainError("the model declined to write an explanation")
-    text = "".join(block.text for block in response.content if block.type == "text").strip()
+    text = (response.text or "").strip()
     if not text:
-        raise ExplainError("the model returned no text")
+        raise ExplainError(f"the model returned no text (finish reason: {_finish_reason(response)})")
     return text
+
+
+def _finish_reason(response) -> str | None:
+    if response.candidates:
+        return str(response.candidates[0].finish_reason)
+    if response.prompt_feedback:
+        return str(response.prompt_feedback.block_reason)
+    return None
