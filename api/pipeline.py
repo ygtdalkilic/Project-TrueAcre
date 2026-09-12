@@ -12,7 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from api import models
-from api.datasets import TABLES
+from api.crypto import decrypt
+from api.tables import TABLES
 from engine.reconcile import reconcile
 from engine.resolve import resolve
 from engine.score import score
@@ -23,7 +24,12 @@ _lock = threading.Lock()
 
 def load_tables(db: Session, org: models.Organization) -> dict[str, pd.DataFrame]:
     rows = db.scalars(select(models.Dataset).where(models.Dataset.org_id == org.id)).all()
-    return {d.table_name: pd.read_csv(io.StringIO(d.csv)) for d in rows}
+    return {d.table_name: pd.read_csv(io.StringIO(decrypt(d.ciphertext))) for d in rows}
+
+
+def forget(org_id: int) -> None:
+    with _lock:
+        _cache.pop(org_id, None)
 
 
 def results(db: Session, org: models.Organization) -> dict:

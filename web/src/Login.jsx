@@ -58,6 +58,10 @@ export default function Login({ config, onSignedIn }) {
       )}
 
       {error && <p className="error">{error}</p>}
+      <p className="muted small">
+        By signing in you agree to the <a href="/terms.html">Terms of Use</a> and{' '}
+        <a href="/privacy.html">Privacy Policy</a>.
+      </p>
     </div>
   )
 }

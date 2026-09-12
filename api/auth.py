@@ -26,10 +26,10 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
-from api import models
+from api import models, pipeline
 from api.db import get_db
 from api.security import IS_PRODUCTION, RateLimiter, client_ip
 
@@ -198,6 +198,28 @@ def logout_everywhere(response: Response, user: models.User = Depends(current_us
 @router.get("/me")
 def me(request: Request, user: models.User = Depends(current_user), db: Session = Depends(get_db)):
     return me_payload(db, user, request.state.session.get("org"))
+
+
+@router.delete("/me", status_code=204)
+def delete_account(response: Response, user: models.User = Depends(current_user), db: Session = Depends(get_db)):
+    """Delete the account. Companies where this user is the only member are deleted with it;
+    where they are the only admin among other members, they must hand over admin first."""
+    memberships = db.scalars(select(models.Membership).where(models.Membership.user_id == user.id)).all()
+    for m in memberships:
+        others = db.scalars(select(models.Membership).where(models.Membership.org_id == m.org_id,
+                                                            models.Membership.user_id != user.id)).all()
+        if not others:
+            models.purge_organization(db, m.org_id)
+            pipeline.forget(m.org_id)
+        elif m.role == "admin" and not any(o.role == "admin" for o in others):
+            raise HTTPException(status_code=409,
+                                detail=f"make another member admin of {m.organization.name} before deleting your account")
+    db.execute(delete(models.Membership).where(models.Membership.user_id == user.id))
+    db.execute(update(models.Invite).where(models.Invite.invited_by == user.id).values(invited_by=None))
+    db.execute(update(models.Dataset).where(models.Dataset.uploaded_by == user.id).values(uploaded_by=None))
+    db.delete(user)
+    db.commit()
+    clear_session(response)
 
 
 class OrgChoice(BaseModel):

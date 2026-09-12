@@ -1,11 +1,15 @@
 import { useState } from 'react'
 import { api } from './api.js'
 
-export default function Company({ me, onChanged, onSignOut }) {
+export default function Company({ me, onChanged, onSignOut, onDeleted }) {
   const [name, setName] = useState('')
   const [error, setError] = useState(null)
 
   const choose = (id) => api.chooseOrg(id).then(onChanged).catch((e) => setError(e.message))
+  const deleteAccount = () => {
+    if (!window.confirm('Delete your account? Companies where you are the only member are deleted with it.')) return
+    api.deleteAccount().then(onDeleted).catch((e) => setError(e.message))
+  }
   const create = (e) => {
     e.preventDefault()
     setError(null)
@@ -44,6 +48,10 @@ export default function Company({ me, onChanged, onSignOut }) {
         <p className="muted">Waiting for an invite? Sign in again after your admin adds your email.</p>
       )}
       {error && <p className="error">{error}</p>}
+      <p className="muted small">
+        <button className="link" onClick={deleteAccount}>Delete my account</button> ·{' '}
+        <a href="/privacy.html">Privacy Policy</a> · <a href="/terms.html">Terms of Use</a>
+      </p>
     </div>
   )
 }

@@ -5,8 +5,8 @@ with a role. Invites let an admin add people by email before they have signed in
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import DateTime, ForeignKey, LargeBinary, String, UniqueConstraint, delete
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from api.db import Base
 
@@ -62,13 +62,13 @@ class Invite(Base):
     org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
     email: Mapped[str] = mapped_column(String(320))
     role: Mapped[str] = mapped_column(String(16))
-    invited_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    invited_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))  # null once that account is deleted
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Dataset(Base):
-    """One uploaded table for one company, stored as the validated CSV text."""
+    """One uploaded table for one company: the validated CSV, encrypted (see api/crypto.py)."""
 
     __tablename__ = "datasets"
     __table_args__ = (UniqueConstraint("org_id", "table_name"),)
@@ -76,7 +76,14 @@ class Dataset(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
     table_name: Mapped[str] = mapped_column(String(40))
-    csv: Mapped[str] = mapped_column(Text)
+    ciphertext: Mapped[bytes] = mapped_column(LargeBinary)
     row_count: Mapped[int]
     uploaded_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+def purge_organization(db: Session, org_id: int) -> None:
+    """Delete a company and everything it owns. Callers commit."""
+    for model in (Dataset, Invite, Membership):
+        db.execute(delete(model).where(model.org_id == org_id))
+    db.execute(delete(Organization).where(Organization.id == org_id))

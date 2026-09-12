@@ -18,8 +18,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -71,11 +70,6 @@ def config() -> dict:
 
 
 if WEB_DIST.is_dir():
-    app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
-
-    @app.get("/{path:path}", include_in_schema=False)
-    def spa(path: str):
-        """Serve the dashboard for every non-API path; the app handles its own views."""
-        if path.startswith("api/"):
-            raise HTTPException(status_code=404, detail="no such endpoint")
-        return FileResponse(WEB_DIST / "index.html")
+    # The dashboard has no client-side routes, so plain static serving is enough: index.html at /,
+    # the built assets, and the legal pages. API routes above take precedence; anything else is 404.
+    app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="web")

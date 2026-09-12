@@ -24,7 +24,9 @@ export default function App() {
   if (error) return <div className="app"><p className="error">{error}</p></div>
   if (!config || me === undefined) return <div className="app"><p className="muted">Loading…</p></div>
   if (!me) return <Login config={config} onSignedIn={setMe} />
-  if (!me.current_org) return <Company me={me} onChanged={setMe} onSignOut={signOut} />
+  if (!me.current_org) {
+    return <Company me={me} onChanged={setMe} onSignOut={signOut} onDeleted={() => setMe(null)} />
+  }
 
   const isAdmin = me.current_org.role === 'admin'
   const views = isAdmin ? Object.keys(VIEWS) : Object.keys(VIEWS).filter((v) => v !== 'members')
@@ -52,7 +54,12 @@ export default function App() {
 
       {view === 'scores' && <Scores config={config} onNeedData={() => setView('data')} />}
       {view === 'data' && <Data />}
-      {view === 'members' && isAdmin && <Members me={me} />}
+      {view === 'members' && isAdmin && <Members me={me} onOrgDeleted={(m) => { setMe(m); setView('scores') }} />}
+
+      <footer className="muted small">
+        Scores are indicators computed from uploaded records, never findings about a person.{' '}
+        <a href="/terms.html">Terms of Use</a> · <a href="/privacy.html">Privacy Policy</a>
+      </footer>
     </div>
   )
 }

@@ -16,6 +16,7 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from api import auth, datasets, scores  # noqa: E402
+from api.db import Base, engine  # noqa: E402
 from api.main import app  # noqa: E402
 
 
@@ -28,6 +29,9 @@ def reset_rate_limits():
 
 @pytest.fixture
 def client():
+    """A fresh, empty database for every test, so tests cannot depend on each other's users or companies."""
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
     with TestClient(app) as c:
         yield c
 

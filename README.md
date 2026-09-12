@@ -85,10 +85,13 @@ What is in place, and what it does not cover.
 - **Cross-site requests.** State-changing API calls must come from the same origin (Origin and Sec-Fetch-Site are checked) on top of the cookie's SameSite protection.
 - **Headers.** A Content Security Policy allows only the app's own files plus Google's sign-in button, and frames are refused. HSTS is on in production.
 - **Input.** Uploads are capped at 20 MB and 500,000 rows, must be UTF-8 CSV, and are validated column by column with typed errors. All database access is parameterized through SQLAlchemy.
+- **Encryption at rest.** Every uploaded table is encrypted with AES-256-GCM before it is stored, using a key held in Secret Manager and never in the database. A leaked database alone reveals no grower data, and tampering is detected on read.
+- **Privacy rights.** Members can remove any table, admins can delete a company with everything it owns, and any user can delete their account. See the Privacy Policy and Terms of Use served at `/privacy.html` and `/terms.html`.
 - **Abuse.** Sign-in attempts, uploads, and paid explanation calls are rate limited per server instance.
 - **Secrets.** Never in the repo or the image. Locally in `.env`; on Cloud Run in Secret Manager.
+- **Dependencies.** `pip-audit` and `npm audit` run on every push and weekly; Dependabot opens update pull requests. See [SECURITY.md](SECURITY.md) for reporting and incident steps.
 
-Not covered: distributed rate limiting across instances, a web application firewall, audit logging of user actions, and backups beyond what Neon provides. No system is fully protected; report anything you find.
+Not covered: distributed rate limiting across instances, a web application firewall, audit logging of user actions, and backups beyond what Neon provides. No system is immune to unknown vulnerabilities; the measures above shorten the window, they do not close it. Report anything you find.
 
 # Deploying to Google Cloud Run
 
@@ -96,11 +99,15 @@ The container builds the dashboard and serves it with the API from one process. 
 
 ```
 gcloud run deploy trueacre --source . --region us-east5 --allow-unauthenticated \
-  --set-secrets DATABASE_URL=database-url:latest,SESSION_SECRET=session-secret:latest,GEMINI_API_KEY=gemini-api-key:latest \
+  --set-secrets DATABASE_URL=database-url:latest,SESSION_SECRET=session-secret:latest,DATA_ENCRYPTION_KEY=data-encryption-key:latest,GEMINI_API_KEY=gemini-api-key:latest \
   --set-env-vars TRUEACRE_ENV=production,GOOGLE_CLIENT_ID=<client id>,TRUEACRE_LLM_PROVIDER=gemini,TRUEACRE_LLM_MODEL=gemini-3.8-flash
 ```
 
-Create the three secrets in Secret Manager first. After the first deploy, add the service URL to the OAuth client's authorized JavaScript origins and set `TRUEACRE_ALLOWED_HOSTS` to the service hostname.
+Create the four secrets in Secret Manager first (`python -m api.crypto` prints a fresh encryption key). After the first deploy, add the service URL to the OAuth client's authorized JavaScript origins and set `TRUEACRE_ALLOWED_HOSTS` to the service hostname.
+
+# License
+
+Source-available, all rights reserved. The code may be viewed but not copied, modified, redistributed, or used to run a service without written permission. See [LICENSE](LICENSE).
 
 # Layout
 

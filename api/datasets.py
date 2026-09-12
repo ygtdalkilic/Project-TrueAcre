@@ -17,22 +17,14 @@ from sqlalchemy.orm import Session
 
 from api import models
 from api.auth import current_membership
+from api.crypto import encrypt
 from api.db import get_db
 from api.security import RateLimiter
-from data import schemas
+from api.tables import TABLES
 from data.generate import DEFAULT_SEED, generate
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-TABLES = {  # upload name -> row schema
-    "growers": schemas.Grower,
-    "dealers": schemas.Dealer,
-    "varieties": schemas.Variety,
-    "seed_purchases": schemas.SeedPurchase,
-    "acreage_reports": schemas.AcreageReport,
-    "elevator_receipts": schemas.ElevatorReceipt,
-    "county_yields": schemas.CountyYield,
-}
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 MAX_ROWS = 500_000
 UPLOAD_LIMIT = RateLimiter(limit=30, window_seconds=60)  # per user
@@ -92,9 +84,9 @@ def validate(table: str, csv_text: str) -> pd.DataFrame:
 def _store(db: Session, org: models.Organization, table: str, df: pd.DataFrame, user_id: int | None) -> models.Dataset:
     ds = db.scalar(select(models.Dataset).where(models.Dataset.org_id == org.id, models.Dataset.table_name == table))
     if ds is None:
-        ds = models.Dataset(org_id=org.id, table_name=table, csv="", row_count=0)
+        ds = models.Dataset(org_id=org.id, table_name=table, ciphertext=b"", row_count=0)
         db.add(ds)
-    ds.csv, ds.row_count = df.to_csv(index=False), len(df)
+    ds.ciphertext, ds.row_count = encrypt(df.to_csv(index=False)), len(df)
     ds.uploaded_by, ds.uploaded_at = user_id, datetime.now(timezone.utc)
     org.data_version += 1
     return ds

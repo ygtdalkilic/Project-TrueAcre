@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
 
-export default function Members({ me }) {
+export default function Members({ me, onOrgDeleted }) {
   const [data, setData] = useState(null)
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('analyst')
@@ -27,6 +27,10 @@ export default function Members({ me }) {
   }
   const revoke = (id) => api.revokeInvite(id).then(refresh).catch((err) => setError(err.message))
   const remove = (userId) => api.removeMember(userId).then(refresh).catch((err) => setError(err.message))
+  const deleteCompany = () => {
+    if (!window.confirm(`Delete ${me.current_org.name} and all of its uploaded data? This cannot be undone.`)) return
+    api.deleteOrg().then(api.me).then(onOrgDeleted).catch((err) => setError(err.message))
+  }
 
   if (!data) return <p className="muted">Loading…</p>
 
@@ -74,6 +78,10 @@ export default function Members({ me }) {
           </table>
         </>
       )}
+
+      <h3>Delete company</h3>
+      <p className="muted">Removes every uploaded table, invite, and membership immediately and permanently.</p>
+      <button className="danger" onClick={deleteCompany}>Delete {me.current_org.name}</button>
     </div>
   )
 }

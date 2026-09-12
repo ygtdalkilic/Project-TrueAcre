@@ -170,6 +170,27 @@ ul.plain li {
   color: var(--ok);
 }
 
+button.danger {
+  font: inherit;
+  color: white;
+  background: var(--review);
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+footer {
+  margin-top: 32px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+footer a,
+.small a {
+  color: var(--accent);
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(360px, 2fr);

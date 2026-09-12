@@ -2,8 +2,12 @@ import json
 
 import pytest
 
+from sqlalchemy import select
+
 import api.auth as auth
 import api.scores as scores_module
+from api import models
+from api.db import SessionLocal
 from data.generate import DEFAULT_SEED, generate
 from engine.explain import LLMClient
 from engine.reconcile import YIELD_SIGMAS
@@ -108,6 +112,35 @@ def test_invites_and_roles(client):
     assert client.delete(f"/api/orgs/current/members/{admin_id}").status_code == 409  # last admin stays
 
 
+def test_delete_company_and_account(client):
+    login(client, "admin@x.com")
+    create_org(client, "Solo Co")
+    load_demo(client)
+    shared = create_org(client, "Shared Co")["current_org"]
+    client.post("/api/orgs/current/invites", json={"email": "other@x.com", "role": "analyst"})
+
+    client.post("/api/auth/logout")
+    login(client, "other@x.com")  # accepts the invite, becomes the second member of Shared Co
+    client.post("/api/auth/logout")
+    login(client, "admin@x.com")
+    r = client.delete("/api/me")  # refused while someone else depends on this admin
+    assert r.status_code == 409 and "Shared Co" in r.json()["detail"]
+
+    # an admin can delete a company outright; data, invites, and memberships go with it
+    client.put("/api/me/org", json={"org_id": shared["id"]})
+    assert client.delete("/api/orgs/current").status_code == 204
+    assert client.get("/api/me").json()["current_org"] is None
+    assert [o["name"] for o in client.get("/api/me").json()["organizations"]] == ["Solo Co"]
+
+    # now the account can go; Solo Co had no other member, so it is deleted too
+    assert client.delete("/api/me").status_code == 204
+    assert client.get("/api/me").status_code == 401
+    with SessionLocal() as db:
+        assert db.scalars(select(models.Organization)).all() == []
+        assert db.scalars(select(models.Dataset)).all() == []
+        assert [u.email for u in db.scalars(select(models.User))] == ["other@x.com"]
+
+
 def test_logout_everywhere_invalidates_old_cookie(client):
     login(client, "a@x.com")
     assert client.get("/api/me").status_code == 200
@@ -131,10 +164,14 @@ def test_templates_and_validation(client):
     assert "must be true/false" in put("dealers", "dealer_id,name,county,state,participating\nD1,d,X,IA,maybe\n").json()["detail"]
     assert "blank values" in put("growers", "grower_id,name,county,state,farm_number\nG1,,X,IA,\n").json()["detail"]
 
-    ok = put("growers", "grower_id,name,county,state,farm_number,extra\nG1,Ann,X,IA,,ignored\nG2,Bob,X,IA,F2,ignored\n")
+    ok = put("growers", "grower_id,name,county,state,farm_number,extra\nG1,Ann Farmer,X,IA,,ignored\nG2,Bob,X,IA,F2,ignored\n")
     assert ok.status_code == 200 and ok.json()["rows"] == 2
     status = {row["table"]: row["rows"] for row in client.get("/api/data").json()}
     assert status["growers"] == 2 and status["dealers"] is None
+
+    with SessionLocal() as db:  # what actually sits in the database is ciphertext, not grower names
+        stored = db.scalar(select(models.Dataset).where(models.Dataset.table_name == "growers"))
+        assert b"Ann Farmer" not in stored.ciphertext and b"grower_id" not in stored.ciphertext
 
     r = client.get("/api/scores")
     assert r.status_code == 409 and "dealers" in r.json()["detail"]["missing"]

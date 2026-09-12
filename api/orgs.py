@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from api import models
+from api import models, pipeline
 from api.auth import current_membership, current_user, me_payload, normalize_email, require_admin, set_session
 from api.db import get_db
 
@@ -40,6 +40,16 @@ def create_org(body: NewOrg, response: Response, user: models.User = Depends(cur
     db.commit()
     set_session(response, user, org.id)
     return me_payload(db, user, org.id)
+
+
+@router.delete("/current", status_code=204)
+def delete_org(response: Response, membership: models.Membership = Depends(require_admin), db: Session = Depends(get_db)):
+    """Delete the company and every dataset, invite, and membership it owns. Admins only."""
+    user, org_id = membership.user, membership.org_id
+    models.purge_organization(db, org_id)
+    db.commit()
+    pipeline.forget(org_id)
+    set_session(response, user, None)
 
 
 @router.get("/current/members")

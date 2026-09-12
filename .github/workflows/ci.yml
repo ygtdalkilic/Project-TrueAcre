@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 6 * * 1"  # weekly: catches newly published vulnerabilities in unchanged dependencies
 
 jobs:
   python:
@@ -22,6 +24,24 @@ jobs:
       - run: pip install -r requirements.txt
       - run: pytest -q
         # No provider is configured here, so explanations stay disabled and nothing calls an external API.
+
+  vulnerabilities:
+    name: Known vulnerabilities in dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit
+      - run: pip-audit -r requirements.txt --strict
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --ignore-scripts
+        working-directory: web
+      - run: npm audit --audit-level=high
+        working-directory: web
 
   web:
     name: Dashboard build
