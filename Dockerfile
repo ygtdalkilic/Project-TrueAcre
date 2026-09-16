@@ -15,6 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY api api
 COPY engine engine
 COPY data data
+COPY alembic.ini .
+COPY migrations migrations
 COPY --from=web /web/dist web/dist
 USER app
 ENV TRUEACRE_ENV=production PORT=8080

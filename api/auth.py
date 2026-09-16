@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
-from api import models, pipeline
+from api import audit, models, pipeline
 from api.db import get_db
 from api.security import IS_PRODUCTION, RateLimiter, client_ip
 
@@ -111,7 +111,7 @@ def require_admin(membership: models.Membership = Depends(current_membership)) -
 
 # --- sign-in ------------------------------------------------------------------------------------
 
-def _sign_in(db: Session, response: Response, *, email: str, name: str,
+def _sign_in(db: Session, response: Response, request: Request, method: str, *, email: str, name: str,
              google_sub: str | None = None, picture: str | None = None) -> dict:
     user = None
     if google_sub:
@@ -131,7 +131,9 @@ def _sign_in(db: Session, response: Response, *, email: str, name: str,
                                                          models.Invite.accepted_at.is_(None))):
         if db.get(models.Membership, (user.id, invite.org_id)) is None:
             db.add(models.Membership(user_id=user.id, org_id=invite.org_id, role=invite.role))
+            audit.record(db, "invite.accept", request=request, user_id=user.id, org_id=invite.org_id, email=email)
         invite.accepted_at = datetime.now(timezone.utc)
+    audit.record(db, "auth.sign_in", request=request, user_id=user.id, method=method, email=email)
     db.commit()
 
     memberships = db.scalars(select(models.Membership).where(models.Membership.user_id == user.id)).all()
@@ -170,7 +172,7 @@ def google_login(body: GoogleCredential, request: Request, response: Response, d
     except ValueError as e:
         raise HTTPException(status_code=401, detail=f"Google sign-in failed: {e}")
     email = normalize_email(claims["email"])
-    return _sign_in(db, response, email=email, name=claims.get("name") or email,
+    return _sign_in(db, response, request, "google", email=email, name=claims.get("name") or email,
                     google_sub=claims["sub"], picture=claims.get("picture"))
 
 
@@ -180,7 +182,7 @@ def dev_login(body: DevLogin, request: Request, response: Response, db: Session 
         raise HTTPException(status_code=404)
     LOGIN_LIMIT.check(client_ip(request))
     email = normalize_email(body.email)
-    return _sign_in(db, response, email=email, name=body.name.strip() or email)
+    return _sign_in(db, response, request, "dev", email=email, name=body.name.strip() or email)
 
 
 @router.post("/auth/logout", status_code=204)
@@ -189,8 +191,10 @@ def logout(response: Response, user: models.User = Depends(current_user)):
 
 
 @router.post("/auth/logout-all", status_code=204)
-def logout_everywhere(response: Response, user: models.User = Depends(current_user), db: Session = Depends(get_db)):
+def logout_everywhere(request: Request, response: Response, user: models.User = Depends(current_user),
+                      db: Session = Depends(get_db)):
     user.session_version += 1
+    audit.record(db, "auth.logout_all", request=request, user_id=user.id)
     db.commit()
     clear_session(response)
 
@@ -201,7 +205,8 @@ def me(request: Request, user: models.User = Depends(current_user), db: Session 
 
 
 @router.delete("/me", status_code=204)
-def delete_account(response: Response, user: models.User = Depends(current_user), db: Session = Depends(get_db)):
+def delete_account(request: Request, response: Response, user: models.User = Depends(current_user),
+                   db: Session = Depends(get_db)):
     """Delete the account. Companies where this user is the only member are deleted with it;
     where they are the only admin among other members, they must hand over admin first."""
     memberships = db.scalars(select(models.Membership).where(models.Membership.user_id == user.id)).all()
@@ -217,6 +222,8 @@ def delete_account(response: Response, user: models.User = Depends(current_user)
     db.execute(delete(models.Membership).where(models.Membership.user_id == user.id))
     db.execute(update(models.Invite).where(models.Invite.invited_by == user.id).values(invited_by=None))
     db.execute(update(models.Dataset).where(models.Dataset.uploaded_by == user.id).values(uploaded_by=None))
+    db.execute(update(models.LinkDecision).where(models.LinkDecision.decided_by == user.id).values(decided_by=None))
+    audit.record(db, "account.delete", request=request, user_id=user.id, email=user.email)
     db.delete(user)
     db.commit()
     clear_session(response)

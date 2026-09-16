@@ -50,8 +50,14 @@ export const api = {
   },
   deleteTable: (table) => request(`/data/${table}`, { method: 'DELETE' }),
   loadDemo: () => request('/data/demo', { method: 'POST' }),
+  usdaImport: () => request('/data/county_yields/usda', { method: 'POST' }),
   scores: () => request('/scores'),
   unmatched: () => request('/unmatched'),
-  evidence: (growerId, season) => request(`/growers/${growerId}/seasons/${season}`),
-  explanation: (growerId, season) => request(`/growers/${growerId}/seasons/${season}/explanation`, { method: 'POST' }),
+  evidence: (growerId, season, crop) => request(`/growers/${growerId}/seasons/${season}/crops/${crop}`),
+  explanation: (growerId, season, crop) =>
+    request(`/growers/${growerId}/seasons/${season}/crops/${crop}/explanation`, { method: 'POST' }),
+  reviewLinks: () => request('/links/review'),
+  decideLink: (record_id, grower_id, note) => request('/links/decisions', { method: 'POST', body: { record_id, grower_id, note } }),
+  revertLink: (recordId) => request(`/links/decisions/${recordId}`, { method: 'DELETE' }),
+  audit: () => request('/orgs/current/audit'),
 }

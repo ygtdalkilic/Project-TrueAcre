@@ -193,14 +193,35 @@ def test_demo_data_scores_match_the_engine(client):
     assert review and {(r["grower_id"], r["season"]) for r in review} <= set(zip(ghost["grower_id"], ghost["season"]))
 
     flagged = review[0]
-    body = client.get(f"/api/growers/{flagged['grower_id']}/seasons/{flagged['season']}").json()
+    assert flagged["crop"] == "soybeans"
+    body = client.get(f"/api/growers/{flagged['grower_id']}/seasons/{flagged['season']}/crops/{flagged['crop']}").json()
     assert body["score"] == flagged
     assert sum(p["acres_supported"] for p in body["purchases"]) == pytest.approx(flagged["licensed_acres"])
     assert sum(a["acres"] for a in body["acreage_reports"]) == pytest.approx(flagged["declared_acres"])
     cy = body["county_yield"]
     assert cy["mean_yield"] + YIELD_SIGMAS * cy["std_yield"] == pytest.approx(flagged["yield_ceiling"])
-    assert client.get("/api/growers/NOPE/seasons/2024").status_code == 404
+    assert client.get("/api/growers/NOPE/seasons/2024/crops/soybeans").status_code == 404
+    assert client.get(f"/api/growers/{flagged['grower_id']}/seasons/{flagged['season']}/crops/corn").status_code == 404
     assert isinstance(client.get("/api/unmatched").json(), list)
+
+
+def test_audit_log_records_actions_for_admins_only(client):
+    login(client, "admin@x.com")
+    create_org(client, "Acme")
+    load_demo(client)
+    row = client.get("/api/scores").json()[0]
+    client.get(f"/api/growers/{row['grower_id']}/seasons/{row['season']}/crops/{row['crop']}")
+    client.post("/api/orgs/current/invites", json={"email": "an@x.com", "role": "analyst"})
+
+    events = client.get("/api/orgs/current/audit").json()
+    assert [e["action"] for e in events] == ["invite.create", "evidence.view", "data.demo", "org.create"]  # newest first
+    assert all(e["user"] == "admin@x.com" and e["ip"] for e in events)
+    assert events[0]["detail"] == {"email": "an@x.com", "role": "analyst", "joined": False}
+    assert events[1]["detail"]["grower_id"] == row["grower_id"]
+
+    client.post("/api/auth/logout")
+    login(client, "an@x.com")
+    assert client.get("/api/orgs/current/audit").status_code == 403  # analysts cannot read the log
 
 
 def test_companies_cannot_see_each_other(client):
@@ -214,7 +235,8 @@ def test_companies_cannot_see_each_other(client):
     create_org(client, "B Co")
     assert client.put("/api/me/org", json={"org_id": org_a["id"]}).status_code == 403
     assert client.get("/api/scores").status_code == 409  # B has no data, and none of A's leaks
-    assert client.get(f"/api/growers/{grower['grower_id']}/seasons/{grower['season']}").status_code == 409
+    assert client.get(f"/api/growers/{grower['grower_id']}/seasons/{grower['season']}/crops/{grower['crop']}").status_code == 409
+    assert client.get("/api/links/review").status_code == 409
 
 
 # --- explanations -----------------------------------------------------------------------------------
@@ -226,7 +248,7 @@ def test_explanations_disabled_without_a_provider(client, monkeypatch):
     load_demo(client)
     row = client.get("/api/scores").json()[0]
     assert client.get("/api/config").json()["explanations_enabled"] is False
-    assert client.post(f"/api/growers/{row['grower_id']}/seasons/{row['season']}/explanation").status_code == 503
+    assert client.post(f"/api/growers/{row['grower_id']}/seasons/{row['season']}/crops/{row['crop']}/explanation").status_code == 503
 
 
 def test_explanation_is_written_from_the_evidence(client, monkeypatch):
@@ -237,13 +259,14 @@ def test_explanation_is_written_from_the_evidence(client, monkeypatch):
     load_demo(client)
     row = client.get("/api/scores").json()[0]
     assert client.get("/api/config").json()["provider"] == "custom"
+    path = f"/api/growers/{row['grower_id']}/seasons/{row['season']}/crops/{row['crop']}"
 
-    body = client.post(f"/api/growers/{row['grower_id']}/seasons/{row['season']}/explanation").json()
+    body = client.post(f"{path}/explanation").json()
     assert body == {"explanation": "Plain words."}
     sent = json.loads(json.loads(seen[0].content)["messages"][1]["content"])
-    assert sent == client.get(f"/api/growers/{row['grower_id']}/seasons/{row['season']}").json()
+    assert sent == client.get(path).json()
 
     transport, _ = fake_server(status=500)
     monkeypatch.setattr(scores_module, "EXPLAIN_CLIENT", LLMClient("custom", "http://fake/v1", "m", transport=transport))
-    r = client.post(f"/api/growers/{row['grower_id']}/seasons/{row['season']}/explanation")
+    r = client.post(f"{path}/explanation")
     assert r.status_code == 502 and "custom returned 500" in r.json()["detail"]

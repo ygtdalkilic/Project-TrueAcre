@@ -3,12 +3,16 @@ import { api } from './api.js'
 
 export default function Members({ me, onOrgDeleted }) {
   const [data, setData] = useState(null)
+  const [activity, setActivity] = useState(null)
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('analyst')
   const [message, setMessage] = useState(null)
   const [error, setError] = useState(null)
 
-  const refresh = () => api.members().then(setData).catch((e) => setError(e.message))
+  const refresh = () => {
+    api.members().then(setData).catch((e) => setError(e.message))
+    api.audit().then(setActivity).catch((e) => setError(e.message))
+  }
   useEffect(() => {
     refresh()
   }, [])
@@ -77,6 +81,24 @@ export default function Members({ me, onOrgDeleted }) {
             </tbody>
           </table>
         </>
+      )}
+
+      <h3>Activity</h3>
+      <p className="muted">Every upload, ruling, invite, and evidence view in this company, newest first. Only admins can see this.</p>
+      {activity && (
+        <table>
+          <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Details</th></tr></thead>
+          <tbody>
+            {activity.map((e) => (
+              <tr key={e.id}>
+                <td>{new Date(e.at).toLocaleString()}</td>
+                <td>{e.user ?? <span className="muted">deleted account</span>}</td>
+                <td>{e.action}</td>
+                <td className="small">{Object.entries(e.detail).map(([k, v]) => `${k}=${v}`).join(' · ')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
 
       <h3>Delete company</h3>

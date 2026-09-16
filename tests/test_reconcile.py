@@ -92,7 +92,31 @@ def test_deliveries_only(tiny):
 def test_one_row_per_grower_season(tiny):
     out = reconcile(tiny)
     assert list(out["grower_id"]) == ["G1", "G2", "G3"]
-    assert not out.duplicated(["grower_id", "season"]).any()
+    assert list(out["crop"]) == ["soybeans"] * 3
+    assert not out.duplicated(["grower_id", "season", "crop"]).any()
+
+
+def test_each_licensed_crop_is_scored_separately(tiny):
+    """G1 also licenses wheat: 10 units of V3 at 1 acre per unit, declares 12 wheat acres."""
+    tiny["varieties"] = pd.concat([tiny["varieties"], pd.DataFrame({
+        "variety_id": ["V3"], "name": ["w1"], "crop": ["wheat"],
+        "seeds_per_unit": [1_000_000], "target_seeds_per_acre": [1_000_000],
+    })], ignore_index=True)
+    tiny["seed_purchases"] = pd.concat([tiny["seed_purchases"], pd.DataFrame(
+        [("P4", "G1", "D1", "V3", 2024, 10)], columns=columns(SeedPurchase))], ignore_index=True)
+    tiny["acreage_reports"] = pd.concat([tiny["acreage_reports"], pd.DataFrame({
+        "report_id": ["A3"], "grower_id": ["G1"], "season": [2024], "crop": ["wheat"], "acres": [12.0],
+    })], ignore_index=True)
+    tiny["county_yields"] = pd.concat([tiny["county_yields"], pd.DataFrame({
+        "county": ["X"], "state": ["IA"], "season": [2024], "crop": ["wheat"], "mean_yield": [40.0], "std_yield": [4.0],
+    })], ignore_index=True)
+
+    out = reconcile(tiny).set_index(["grower_id", "crop"])
+    soy, wheat = out.loc[("G1", "soybeans")], out.loc[("G1", "wheat")]
+    assert soy.licensed_acres == 100.0 and soy.declared_acres == 150.0  # unchanged by the wheat rows
+    assert wheat.licensed_acres == 10.0 and wheat.declared_acres == 12.0 and wheat.acre_gap == 2.0
+    assert wheat.yield_ceiling == 40.0 + 3 * 4.0 and wheat.delivered_bushels == 0.0
+    assert "corn" not in out.index.get_level_values("crop")  # still not a licensed crop
 
 
 def test_against_synthetic_ground_truth():

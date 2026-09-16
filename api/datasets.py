@@ -15,7 +15,7 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from api import models
+from api import audit, models
 from api.auth import current_membership
 from api.crypto import encrypt
 from api.db import get_db
@@ -130,12 +130,15 @@ async def upload(table: str, file: UploadFile, request: Request,
         raise HTTPException(status_code=400, detail="file must be UTF-8 text")
     df = validate(table, text)
     ds = _store(db, membership.organization, table, df, membership.user_id)
+    audit.record(db, "data.upload", request=request, user_id=membership.user_id, org_id=membership.org_id,
+                 table=table, rows=ds.row_count, filename=file.filename)
     db.commit()
     return {"table": table, "rows": ds.row_count, "uploaded_at": ds.uploaded_at.isoformat()}
 
 
 @router.delete("/{table}", status_code=204)
-def delete(table: str, membership: models.Membership = Depends(current_membership), db: Session = Depends(get_db)):
+def delete(table: str, request: Request, membership: models.Membership = Depends(current_membership),
+           db: Session = Depends(get_db)):
     _table_or_404(table)
     ds = db.scalar(select(models.Dataset).where(models.Dataset.org_id == membership.org_id,
                                                 models.Dataset.table_name == table))
@@ -143,14 +146,17 @@ def delete(table: str, membership: models.Membership = Depends(current_membershi
         raise HTTPException(status_code=404, detail="nothing uploaded for that table")
     db.delete(ds)
     membership.organization.data_version += 1
+    audit.record(db, "data.delete", request=request, user_id=membership.user_id, org_id=membership.org_id, table=table)
     db.commit()
 
 
 @router.post("/demo")
-def load_demo(membership: models.Membership = Depends(current_membership), db: Session = Depends(get_db)):
+def load_demo(request: Request, membership: models.Membership = Depends(current_membership),
+              db: Session = Depends(get_db)):
     """Replace the company's tables with the synthetic sample dataset."""
     tables = generate(seed=DEFAULT_SEED)
     for name in TABLES:
         _store(db, membership.organization, name, tables[name], membership.user_id)
+    audit.record(db, "data.demo", request=request, user_id=membership.user_id, org_id=membership.org_id)
     db.commit()
     return {"loaded": list(TABLES)}

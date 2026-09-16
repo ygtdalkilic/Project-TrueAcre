@@ -15,8 +15,10 @@ for var in ("GOOGLE_CLIENT_ID", "TRUEACRE_LLM_PROVIDER", "TRUEACRE_ALLOWED_HOSTS
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from sqlalchemy import text  # noqa: E402
+
 from api import auth, datasets, scores  # noqa: E402
-from api.db import Base, engine  # noqa: E402
+from api.db import Base, engine, init_db  # noqa: E402
 from api.main import app  # noqa: E402
 
 
@@ -29,9 +31,12 @@ def reset_rate_limits():
 
 @pytest.fixture
 def client():
-    """A fresh, empty database for every test, so tests cannot depend on each other's users or companies."""
+    """A fresh, empty database for every test, built by the real migrations, so tests cannot depend
+    on each other's users or companies and the migrations are exercised on every run."""
     Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
+    init_db()
     with TestClient(app) as c:
         yield c
 

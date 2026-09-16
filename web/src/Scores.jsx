@@ -14,6 +14,7 @@ export default function Scores({ config, onNeedData }) {
   const [season, setSeason] = useState('')
   const [county, setCounty] = useState('')
   const [label, setLabel] = useState('')
+  const [crop, setCrop] = useState('')
   const [selected, setSelected] = useState(null)
 
   useEffect(() => {
@@ -35,13 +36,16 @@ export default function Scores({ config, onNeedData }) {
 
   const seasons = [...new Set(scores.map((s) => s.season))].sort()
   const counties = [...new Set(scores.map((s) => s.county))].sort()
+  const crops = [...new Set(scores.map((s) => s.crop))].sort()
   const rows = scores.filter(
     (s) =>
       (!season || s.season === Number(season)) &&
       (!county || s.county === county) &&
-      (!label || s.label === label),
+      (!label || s.label === label) &&
+      (!crop || s.crop === crop),
   )
-  const isSelected = (r) => selected && selected.grower_id === r.grower_id && selected.season === r.season
+  const sameRow = (a, b) => a.grower_id === b.grower_id && a.season === b.season && a.crop === b.crop
+  const isSelected = (r) => selected && sameRow(selected, r)
 
   return (
     <div className="layout">
@@ -63,6 +67,12 @@ export default function Scores({ config, onNeedData }) {
             <option value="">All labels</option>
             {LABELS.map((l) => <option key={l} value={l}>{l}</option>)}
           </select>
+          {crops.length > 1 && (
+            <select value={crop} onChange={(e) => setCrop(e.target.value)}>
+              <option value="">All crops</option>
+              {crops.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          )}
           <span className="muted">{rows.length} grower-seasons</span>
         </div>
 
@@ -74,6 +84,7 @@ export default function Scores({ config, onNeedData }) {
               <th>Grower</th>
               <th>County</th>
               <th>Season</th>
+              <th>Crop</th>
               <th className="num">Licensed ac</th>
               <th className="num">Declared ac</th>
               <th className="num">Coverage</th>
@@ -81,12 +92,13 @@ export default function Scores({ config, onNeedData }) {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={`${r.grower_id}-${r.season}`} className={isSelected(r) ? 'selected' : ''} onClick={() => setSelected(r)}>
+              <tr key={`${r.grower_id}-${r.season}-${r.crop}`} className={isSelected(r) ? 'selected' : ''} onClick={() => setSelected(r)}>
                 <td className="num">{r.fair_play_score}</td>
                 <td><Label value={r.label} /></td>
                 <td>{r.name} <span className="muted">{r.grower_id}</span></td>
                 <td>{r.county}, {r.state}</td>
                 <td>{r.season}</td>
+                <td>{r.crop}</td>
                 <td className="num">{fmt(r.licensed_acres)}</td>
                 <td className="num">{fmt(r.declared_acres)}</td>
                 <td className="num">{pct(r.coverage)}</td>
@@ -120,7 +132,7 @@ export default function Scores({ config, onNeedData }) {
 
       <aside>
         {selected ? (
-          <Evidence growerId={selected.grower_id} season={selected.season} explain={config} />
+          <Evidence growerId={selected.grower_id} season={selected.season} crop={selected.crop} explain={config} />
         ) : (
           <p className="muted">Select a grower to see the evidence behind the score.</p>
         )}

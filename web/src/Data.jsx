@@ -11,7 +11,7 @@ const DESCRIPTIONS = {
   county_yields: 'County average yield and standard deviation per crop and season.',
 }
 
-export default function Data() {
+export default function Data({ config }) {
   const [status, setStatus] = useState(null)
   const [busy, setBusy] = useState(null)
   const [message, setMessage] = useState(null)
@@ -34,6 +34,8 @@ export default function Data() {
     run(table, api.uploadTable(table, file).then((r) => `${r.table}: ${r.rows} rows uploaded.`))
   }
   const remove = (table) => run(table, api.deleteTable(table).then(() => `${table}: removed.`))
+  const usda = () => run('county_yields', api.usdaImport().then((r) =>
+    `county_yields: ${r.rows} rows from USDA.${r.notes.length ? ` Skipped: ${r.notes.join('; ')}` : ''}`))
   const demo = () => run('demo', api.loadDemo().then(() => 'Sample dataset loaded into all seven tables.'))
 
   if (!status) return <p className="muted">Loading…</p>
@@ -73,6 +75,11 @@ export default function Data() {
                        onChange={(e) => { upload(s.table, e.target.files[0]); e.target.value = '' }} />
               </label>
               {s.rows !== null && <button className="link" onClick={() => remove(s.table)} disabled={busy !== null}>remove</button>}
+              {s.table === 'county_yields' && config.usda_enabled && (
+                <button className="link" onClick={usda} disabled={busy !== null} title="Fill from USDA county statistics for your growers' counties, crops, and seasons">
+                  fill from USDA
+                </button>
+              )}
             </p>
           </div>
         ))}

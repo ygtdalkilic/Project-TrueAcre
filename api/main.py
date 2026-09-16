@@ -11,6 +11,7 @@ Configuration (environment variables, all optional unless noted):
   TRUEACRE_DEV_LOGIN      "1" enables email-only login outside production
   TRUEACRE_ALLOWED_HOSTS  comma-separated Host values the server answers to (default: any)
   TRUEACRE_LLM_PROVIDER   enables plain-English explanations (see engine/explain.py)
+  NASS_API_KEY            enables the USDA county-yield import (see api/usda.py)
 
 Put secrets in a gitignored .env and start with: uvicorn api.main:app --reload --env-file .env
 """
@@ -22,7 +23,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from api import auth, datasets, orgs, scores
+from api import auth, datasets, links, orgs, scores, usda
 from api.db import init_db
 from api.security import IS_PRODUCTION, SameOriginMiddleware, SecurityHeadersMiddleware
 
@@ -47,7 +48,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(SameOriginMiddleware)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 
-for module in (auth, orgs, datasets, scores):
+for module in (auth, orgs, datasets, usda, scores, links):
     app.include_router(module.router)
 
 
@@ -66,6 +67,7 @@ def config() -> dict:
         "explanations_enabled": client is not None,
         "provider": client.provider if client else None,
         "model": client.model if client else None,
+        "usda_enabled": usda.NASS_API_KEY is not None,
     }
 
 

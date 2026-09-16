@@ -25,7 +25,13 @@ Real grower-level data is private, so the project ships a synthetic generator wi
 
 TrueAcre is multi-tenant. Anyone can sign in with Google and create a company; they become its first admin. Admins invite colleagues by email as `admin` or `analyst`, and the invite turns into a membership the moment that person signs in. A company's data and scores are visible only to its members, and every API request is scoped to the company chosen in the session.
 
-Each company uploads seven CSV tables from the Data page: growers, dealers, varieties, seed purchases, acreage reports, elevator receipts, and county yields. Templates with the exact columns are downloadable there, uploads are validated with row-level error messages, and a one-click sample dataset exists for trying the product.
+Each company uploads seven CSV tables from the Data page: growers, dealers, varieties, seed purchases, acreage reports, elevator receipts, and county yields. Templates with the exact columns are downloadable there, uploads are validated with row-level error messages, and a one-click sample dataset exists for trying the product. County yields can also be filled from USDA county statistics with one click when the server has a free NASS API key.
+
+Every crop that appears in the varieties table is scored separately, so a company licensing soybeans and wheat sees a row per grower, season, and crop.
+
+**Links page.** The resolver links an external record to a grower only when exactly one grower fits. Records it refused, and records it linked only by fuzzy name similarity, wait on the Links page with ranked candidate growers. An analyst links a record, confirms a fuzzy link, or rules that it matches nobody. Rulings override the resolver and can be undone.
+
+**Activity.** Every upload, ruling, invite, membership change, and evidence view is written to an audit log that admins can read on the Members page. The log outlives the users and companies it describes.
 
 # Running locally
 
@@ -49,7 +55,7 @@ npm install
 npm run dev                      # dashboard on http://localhost:5173, proxying /api to port 8000
 ```
 
-Without a Google client ID the sign-in page offers a development sign-in by email, which only exists outside production. The database defaults to a local SQLite file.
+Without a Google client ID the sign-in page offers a development sign-in by email, which only exists outside production. The database defaults to a local SQLite file, and the schema is applied by Alembic migrations at startup. After changing `api/models.py`, generate a migration with `alembic revision --autogenerate -m "what changed"`; a test fails if a model change has no migration.
 
 Settings, all read from the environment (put them in `.env`):
 
@@ -65,6 +71,8 @@ Settings, all read from the environment (put them in `.env`):
 | `TRUEACRE_LLM_MODEL` | Model name as that provider expects it. Required when a provider is set |
 | `TRUEACRE_LLM_BASE_URL` | Overrides the provider's endpoint. Required for `custom`; handy for an Ollama on another machine |
 | `TRUEACRE_LLM_API_KEY` | Overrides the provider's own key variable (`GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`). Local servers need none |
+| `NASS_API_KEY` | Free key from quickstats.nass.usda.gov/api. Enables "fill from USDA" for county yields. Unset means the button is hidden |
+| `DATA_ENCRYPTION_KEY` | 32 random bytes, urlsafe-base64 (`python -m api.crypto` prints one). Encrypts uploaded tables at rest; required in production |
 
 # Plain-English explanations (optional)
 
@@ -87,11 +95,12 @@ What is in place, and what it does not cover.
 - **Input.** Uploads are capped at 20 MB and 500,000 rows, must be UTF-8 CSV, and are validated column by column with typed errors. All database access is parameterized through SQLAlchemy.
 - **Encryption at rest.** Every uploaded table is encrypted with AES-256-GCM before it is stored, using a key held in Secret Manager and never in the database. A leaked database alone reveals no grower data, and tampering is detected on read.
 - **Privacy rights.** Members can remove any table, admins can delete a company with everything it owns, and any user can delete their account. See the Privacy Policy and Terms of Use served at `/privacy.html` and `/terms.html`.
-- **Abuse.** Sign-in attempts, uploads, and paid explanation calls are rate limited per server instance.
+- **Audit log.** Who uploaded, ruled, invited, removed, or viewed evidence, when, and from where; readable by admins, kept after deletions.
+- **Abuse.** Sign-in attempts, uploads, USDA imports, and paid explanation calls are rate limited per server instance.
 - **Secrets.** Never in the repo or the image. Locally in `.env`; on Cloud Run in Secret Manager.
 - **Dependencies.** `pip-audit` and `npm audit` run on every push and weekly; Dependabot opens update pull requests. See [SECURITY.md](SECURITY.md) for reporting and incident steps.
 
-Not covered: distributed rate limiting across instances, a web application firewall, audit logging of user actions, and backups beyond what Neon provides. No system is immune to unknown vulnerabilities; the measures above shorten the window, they do not close it. Report anything you find.
+Not covered: distributed rate limiting across instances, a web application firewall, and backups beyond what Neon provides. No system is immune to unknown vulnerabilities; the measures above shorten the window, they do not close it. Report anything you find.
 
 # Deploying to Google Cloud Run
 
@@ -114,7 +123,9 @@ Source-available, all rights reserved. The code may be viewed but not copied, mo
 ```
 data/     row schemas and the synthetic generator
 engine/   resolve, reconcile, score: pure functions over pandas tables; optional explain
-api/      FastAPI: auth and sessions, companies and invites, CSV intake, per-company pipeline, scores
+api/      FastAPI: auth and sessions, companies and invites, CSV intake, USDA import, link review, audit log,
+          per-company pipeline, scores
+migrations/  Alembic migrations, applied at startup
 web/      React + Vite dashboard
 tests/    pytest suite, run against synthetic ground truth and a throwaway SQLite database
 ```

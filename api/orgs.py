@@ -1,12 +1,12 @@
 """Companies, members, and invites."""
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from api import models, pipeline
+from api import audit, models, pipeline
 from api.auth import current_membership, current_user, me_payload, normalize_email, require_admin, set_session
 from api.db import get_db
 
@@ -31,25 +31,34 @@ def _check_name(name: str) -> str:
 
 
 @router.post("", status_code=201)
-def create_org(body: NewOrg, response: Response, user: models.User = Depends(current_user),
+def create_org(body: NewOrg, request: Request, response: Response, user: models.User = Depends(current_user),
                db: Session = Depends(get_db)):
     org = models.Organization(name=_check_name(body.name))
     db.add(org)
     db.flush()
     db.add(models.Membership(user_id=user.id, org_id=org.id, role="admin"))
+    audit.record(db, "org.create", request=request, user_id=user.id, org_id=org.id, name=org.name)
     db.commit()
     set_session(response, user, org.id)
     return me_payload(db, user, org.id)
 
 
 @router.delete("/current", status_code=204)
-def delete_org(response: Response, membership: models.Membership = Depends(require_admin), db: Session = Depends(get_db)):
+def delete_org(request: Request, response: Response, membership: models.Membership = Depends(require_admin),
+               db: Session = Depends(get_db)):
     """Delete the company and every dataset, invite, and membership it owns. Admins only."""
-    user, org_id = membership.user, membership.org_id
+    user, org_id, name = membership.user, membership.org_id, membership.organization.name
     models.purge_organization(db, org_id)
+    audit.record(db, "org.delete", request=request, user_id=user.id, org_id=org_id, name=name)
     db.commit()
     pipeline.forget(org_id)
     set_session(response, user, None)
+
+
+@router.get("/current/audit")
+def audit_log(membership: models.Membership = Depends(require_admin), db: Session = Depends(get_db)) -> list[dict]:
+    """The company's most recent audit events. Admins only."""
+    return audit.events_for(db, membership.org_id)
 
 
 @router.get("/current/members")
@@ -65,7 +74,8 @@ def list_members(membership: models.Membership = Depends(current_membership), db
 
 
 @router.post("/current/invites", status_code=201)
-def invite(body: NewInvite, membership: models.Membership = Depends(require_admin), db: Session = Depends(get_db)):
+def invite(body: NewInvite, request: Request, membership: models.Membership = Depends(require_admin),
+           db: Session = Depends(get_db)):
     if body.role not in models.ROLES:
         raise HTTPException(status_code=400, detail=f"role must be one of {list(models.ROLES)}")
     email = normalize_email(body.email)
@@ -85,22 +95,26 @@ def invite(body: NewInvite, membership: models.Membership = Depends(require_admi
     if existing_user:  # they already have an account: no need to wait for their next sign-in
         db.add(models.Membership(user_id=existing_user.id, org_id=membership.org_id, role=body.role))
         inv.accepted_at = datetime.now(timezone.utc)
+    audit.record(db, "invite.create", request=request, user_id=membership.user_id, org_id=membership.org_id,
+                 email=email, role=body.role, joined=existing_user is not None)
     db.commit()
     return {"email": email, "role": body.role, "joined": existing_user is not None}
 
 
 @router.delete("/current/invites/{invite_id}", status_code=204)
-def revoke_invite(invite_id: int, membership: models.Membership = Depends(require_admin),
+def revoke_invite(invite_id: int, request: Request, membership: models.Membership = Depends(require_admin),
                   db: Session = Depends(get_db)):
     inv = db.get(models.Invite, invite_id)
     if inv is None or inv.org_id != membership.org_id or inv.accepted_at is not None:
         raise HTTPException(status_code=404, detail="no such pending invite")
+    audit.record(db, "invite.revoke", request=request, user_id=membership.user_id, org_id=membership.org_id,
+                 email=inv.email)
     db.delete(inv)
     db.commit()
 
 
 @router.delete("/current/members/{user_id}", status_code=204)
-def remove_member(user_id: int, membership: models.Membership = Depends(require_admin),
+def remove_member(user_id: int, request: Request, membership: models.Membership = Depends(require_admin),
                   db: Session = Depends(get_db)):
     target = db.get(models.Membership, (user_id, membership.org_id))
     if target is None:
@@ -109,5 +123,7 @@ def remove_member(user_id: int, membership: models.Membership = Depends(require_
                                                         models.Membership.role == "admin")).all()
     if target.role == "admin" and len(admins) == 1:
         raise HTTPException(status_code=409, detail="a company needs at least one admin")
+    audit.record(db, "member.remove", request=request, user_id=membership.user_id, org_id=membership.org_id,
+                 removed_user_id=user_id, email=target.user.email)
     db.delete(target)
     db.commit()

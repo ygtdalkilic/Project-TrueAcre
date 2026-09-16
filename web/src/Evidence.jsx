@@ -15,7 +15,7 @@ function conclusion(s) {
   return 'There is a gap and dealer coverage is high, so unseen purchases are unlikely. The evidence above warrants a review.'
 }
 
-export default function Evidence({ growerId, season, explain }) {
+export default function Evidence({ growerId, season, crop, explain }) {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
   const [explanation, setExplanation] = useState(null)
@@ -27,13 +27,13 @@ export default function Evidence({ growerId, season, explain }) {
     setError(null)
     setExplanation(null)
     setExplainError(null)
-    api.evidence(growerId, season).then(setData).catch((e) => setError(e.message))
-  }, [growerId, season])
+    api.evidence(growerId, season, crop).then(setData).catch((e) => setError(e.message))
+  }, [growerId, season, crop])
 
   const requestExplanation = () => {
     setExplaining(true)
     setExplainError(null)
-    api.explanation(growerId, season)
+    api.explanation(growerId, season, crop)
       .then((r) => setExplanation(r.explanation))
       .catch((e) => setExplainError(e.message))
       .finally(() => setExplaining(false))
@@ -48,7 +48,7 @@ export default function Evidence({ growerId, season, explain }) {
   return (
     <div className="evidence">
       <h2>
-        {s.name} <span className="muted">{s.grower_id} · {s.season}</span>
+        {s.name} <span className="muted">{s.grower_id} · {s.season} · {s.crop}</span>
       </h2>
       <div className="scorecard">
         <div className="big">{s.fair_play_score}</div>

@@ -154,9 +154,13 @@ ul.plain li {
   font-size: 12px;
 }
 
-.actions {
+p.actions {
   display: flex;
   gap: 14px;
+}
+
+.row-actions button + button {
+  margin-left: 12px;
 }
 
 .actions a,

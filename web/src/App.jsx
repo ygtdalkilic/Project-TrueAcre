@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import { api, AuthError } from './api.js'
 import Company from './Company.jsx'
 import Data from './Data.jsx'
+import Links from './Links.jsx'
 import Login from './Login.jsx'
 import Members from './Members.jsx'
 import Scores from './Scores.jsx'
 
-const VIEWS = { scores: 'Scores', data: 'Data', members: 'Members' }
+const VIEWS = { scores: 'Scores', links: 'Links', data: 'Data', members: 'Members' }
 
 export default function App() {
   const [config, setConfig] = useState(null)
@@ -53,7 +54,8 @@ export default function App() {
       </header>
 
       {view === 'scores' && <Scores config={config} onNeedData={() => setView('data')} />}
-      {view === 'data' && <Data />}
+      {view === 'links' && <Links onNeedData={() => setView('data')} />}
+      {view === 'data' && <Data config={config} />}
       {view === 'members' && isAdmin && <Members me={me} onOrgDeleted={(m) => { setMe(m); setView('scores') }} />}
 
       <footer className="muted small">

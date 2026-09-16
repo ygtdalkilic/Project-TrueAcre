@@ -1,7 +1,10 @@
-"""Reconcile the three data sources per grower per season.
+"""Reconcile the three data sources per grower, season, and crop.
 
-Pure function: takes the input tables and returns one row per grower-season with the
+Pure function: takes the input tables and returns one row per grower-season-crop with the
 quantities the score is built from. Nothing here decides anything; it only measures gaps.
+
+Only crops the company licenses are scored: a crop counts if at least one variety in the
+varieties table belongs to it. A grower's acreage or deliveries for any other crop are ignored.
 """
 import pandas as pd
 
@@ -9,24 +12,26 @@ import pandas as pd
 # exceptional year must never be flagged. At 2 sigma, roughly 1 in 40 honest grower-seasons beat the
 # ceiling; one of them exceeded the score tolerance in synthetic testing. 3 sigma leaves ~1 in 700.
 YIELD_SIGMAS = 3.0
-KEY = ["grower_id", "season"]
+KEY = ["grower_id", "season", "crop"]
 
 
-def reconcile(tables: dict[str, pd.DataFrame], crop: str = "soybeans") -> pd.DataFrame:
-    """Return one row per grower-season with licensed acres, declared acres, delivered bushels,
+def reconcile(tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Return one row per grower-season-crop with licensed acres, declared acres, delivered bushels,
     the resulting gaps, source presence flags, and county dealer coverage."""
-    purchases = tables["seed_purchases"].merge(tables["varieties"], on="variety_id")
-    purchases = purchases[purchases["crop"] == crop]
+    varieties = tables["varieties"]
+    licensed_crops = set(varieties["crop"])
+
+    purchases = tables["seed_purchases"].merge(varieties, on="variety_id")
     purchases["acres"] = purchases["units"] * purchases["seeds_per_unit"] / purchases["target_seeds_per_acre"]
     licensed = purchases.groupby(KEY)["acres"].sum().rename("licensed_acres").reset_index()
 
     acreage = tables["acreage_reports"]
-    declared = acreage[acreage["crop"] == crop].groupby(KEY)["acres"].sum().rename("declared_acres").reset_index()
+    acreage = acreage[acreage["crop"].isin(licensed_crops)]
+    declared = acreage.groupby(KEY)["acres"].sum().rename("declared_acres").reset_index()
 
     receipts = tables["elevator_receipts"]
-    delivered = (
-        receipts[receipts["crop"] == crop].groupby(KEY)["bushels"].sum().rename("delivered_bushels").reset_index()
-    )
+    receipts = receipts[receipts["crop"].isin(licensed_crops)]
+    delivered = receipts.groupby(KEY)["bushels"].sum().rename("delivered_bushels").reset_index()
 
     out = pd.concat([licensed[KEY], declared[KEY], delivered[KEY]]).drop_duplicates()
     out = out.merge(tables["growers"][["grower_id", "county", "state"]], on="grower_id", how="left")
@@ -39,9 +44,8 @@ def reconcile(tables: dict[str, pd.DataFrame], crop: str = "soybeans") -> pd.Dat
     amounts = ["licensed_acres", "declared_acres", "delivered_bushels"]
     out[amounts] = out[amounts].fillna(0.0)
 
-    yields = tables["county_yields"]
-    yields = yields[yields["crop"] == crop][["county", "season", "mean_yield", "std_yield"]]
-    out = out.merge(yields, on=["county", "season"], how="left")
+    yields = tables["county_yields"][["county", "season", "crop", "mean_yield", "std_yield"]]
+    out = out.merge(yields, on=["county", "season", "crop"], how="left")
     out["yield_ceiling"] = out["mean_yield"] + YIELD_SIGMAS * out["std_yield"]
     out["max_bushels"] = out["licensed_acres"] * out["yield_ceiling"]
     out["acre_gap"] = out["declared_acres"] - out["licensed_acres"]
