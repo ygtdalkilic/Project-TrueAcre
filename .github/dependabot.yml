@@ -1,7 +1,4 @@
-# Automatic pull requests for dependency updates, so known vulnerabilities are patched quickly.
-# Routine minor and patch updates arrive as one grouped pull request per ecosystem per week. Major updates
-# still come one at a time, so each breaking change gets its own review. Security updates are not grouped:
-# each one still opens its own pull request as soon as an advisory affects a dependency.
+# Minor and patch updates are grouped per ecosystem; majors and security fixes still arrive one at a time.
 version: 2
 updates:
   - package-ecosystem: pip

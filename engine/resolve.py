@@ -44,7 +44,7 @@ def _resolve(records: pd.DataFrame, name_col: str, farm_col: str | None, growers
     reg = growers.assign(norm=growers["name"].map(normalize_name))
     by_farm = reg.dropna(subset=["farm_number"]).groupby(["farm_number", "county", "state"])["grower_id"].agg(list)
     by_key = reg.groupby(["norm", "county", "state"])["grower_id"].agg(list)
-    by_county = {place: group for place, group in reg.groupby(["county", "state"])}  # county names repeat across states
+    by_county = {place: group for place, group in reg.groupby(["county", "state"])}
 
     ids, methods = [], []
     for _, rec in records.iterrows():

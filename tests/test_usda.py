@@ -52,7 +52,7 @@ def test_usda_import_endpoint(client, monkeypatch):
     load_demo(client)
 
     series = {y: 55.0 + (y % 3) for y in range(2010, 2026)}
-    counties = [(county, state) for county, state, _full, _yield in COUNTIES]  # the demo's counties
+    counties = [(county, state) for county, state, _full, _yield in COUNTIES]
     transport, seen = fake_nass({county.upper(): series for county, _state in counties})
     monkeypatch.setattr(usda, "TRANSPORT", transport)
 

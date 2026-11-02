@@ -23,7 +23,7 @@ function conclusion(s, grower) {
   return "There is a gap that the grower's own seed statement does not account for, and dealer coverage is high, so unseen purchases are unlikely. The evidence above warrants a review."
 }
 
-// What one more record would settle. Dealer names are left out of the grower's own view.
+// Dealer names stay out of the grower's own view: they would show where purchases go unseen.
 export function WhatWouldClear({ s, clear, showDealers = true }) {
   if (s.label === 'consistent') return null
   const acres = Math.ceil(clear.acres)

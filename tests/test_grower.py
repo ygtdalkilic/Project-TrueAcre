@@ -52,7 +52,7 @@ def test_grower_is_refused_by_every_staff_route(client):
     _company_with_grower(client)
     open_to_growers = ("/api/grower/", "/api/auth/", "/api/me", "/api/health", "/api/config")
     checked = set()
-    for template, operations in app.openapi()["paths"].items():  # every route the app serves
+    for template, operations in app.openapi()["paths"].items():
         if template.startswith(open_to_growers):
             continue
         path = re.sub(r"\{(season|user_id|invite_id)\}", "1", template)

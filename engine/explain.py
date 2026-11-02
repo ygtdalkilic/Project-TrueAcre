@@ -7,12 +7,6 @@ No vendor SDK, so switching provider, or running a model locally, is configurati
 Off the scoring path by design: the score and label are computed before this runs and are
 never changed by it. The model only restates the evidence and lists what an analyst should
 rule out before acting on it.
-
-Configuration (environment variables; unset TRUEACRE_LLM_PROVIDER = explanations disabled):
-  TRUEACRE_LLM_PROVIDER  a key of PROVIDERS below
-  TRUEACRE_LLM_MODEL     model name exactly as that provider expects it
-  TRUEACRE_LLM_BASE_URL  overrides the provider's base URL (required for "custom"; handy for a remote Ollama)
-  TRUEACRE_LLM_API_KEY   overrides the provider's key variable; local servers need no key
 """
 import json
 import os

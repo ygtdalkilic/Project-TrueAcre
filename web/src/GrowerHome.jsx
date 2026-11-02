@@ -3,8 +3,6 @@ import { api } from './api.js'
 import Evidence from './Evidence.jsx'
 import { Label, fmt } from './ui.jsx'
 
-// A grower's own page: every season the company has on record for them, the evidence behind each
-// score, and the one thing only the grower can supply, the seed statement.
 export default function GrowerHome({ company }) {
   const [seasons, setSeasons] = useState(null)
   const [selected, setSelected] = useState(null)

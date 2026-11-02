@@ -18,7 +18,6 @@ from engine.reconcile import YIELD_SIGMAS
 
 router = APIRouter(prefix="/api", tags=["scores"])
 
-# Explanations call a chat model, cloud or local; off unless a provider is configured. The dashboard hides the button.
 EXPLAIN_CLIENT = LLMClient.from_env()
 UPSTREAM_ERROR_CHARS = 300  # how much of a provider's error body to pass on to the analyst
 # per company per minute; these calls can cost money

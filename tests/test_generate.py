@@ -6,7 +6,7 @@ from data.generate import COUNTIES, DEFAULT_SEASONS, OTHER_SELLERS_PER_COUNTY, g
 N_GROWERS = 120
 CASES = {"ghost_seed": 6, "split_brand": 6, "missing_dealer": 6, "neighbor_dealer": 4}  # growers per designed case
 CASE_PARAM = {"ghost_seed": "n_ghost", "split_brand": "n_split_brand", "missing_dealer": "n_missing_dealer",
-              "neighbor_dealer": "n_neighbor_dealer"}  # generate() argument for each case
+              "neighbor_dealer": "n_neighbor_dealer"}
 
 
 @pytest.fixture(scope="module")

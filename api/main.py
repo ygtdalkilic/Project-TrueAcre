@@ -2,20 +2,7 @@
 
 Every route lives under /api. When web/dist exists (the production container), the built
 dashboard is served from / by this same process, so there is no CORS and one URL to deploy.
-
-Configuration (environment variables, all optional unless noted):
-  DATABASE_URL            SQLite file by default; Postgres in the cloud (see api/db.py)
-  GOOGLE_CLIENT_ID        enables Google sign-in (see api/auth.py)
-  SESSION_SECRET          signs session cookies; required in production
-  TRUEACRE_ENV            "production" turns on HSTS, Secure cookies, and disables dev login and API docs
-  TRUEACRE_DEV_LOGIN      "1" enables email-only login outside production
-  TRUEACRE_ALLOWED_HOSTS  comma-separated Host values the server answers to (default: any)
-  TRUEACRE_LLM_PROVIDER   enables plain-English explanations (see engine/explain.py)
-  NASS_API_KEY            enables the USDA county-yield import (see api/usda.py)
-  TRUEACRE_*_LIMIT, TRUEACRE_MAX_UPLOAD_MB, TRUEACRE_MAX_UPLOAD_ROWS, TRUEACRE_*_TIMEOUT
-                          rate limits, upload caps, and network timeouts; defaults in the README settings table
-
-Put secrets in a gitignored .env and start with: uvicorn api.main:app --reload --env-file .env
+Every setting is an environment variable; the README settings table lists each one with its default.
 """
 import os
 from contextlib import asynccontextmanager
