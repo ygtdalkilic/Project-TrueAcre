@@ -5,6 +5,7 @@ row schemas in data/schemas.py, so the template, the validation, and the engine 
 apart. Extra columns are dropped; the normalized CSV is what gets stored.
 """
 import io
+import os
 import types
 from dataclasses import fields
 from datetime import datetime, timezone
@@ -25,9 +26,9 @@ from data.generate import DEFAULT_SEED, generate
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-MAX_UPLOAD_BYTES = 20 * 1024 * 1024
-MAX_ROWS = 500_000
-UPLOAD_LIMIT = RateLimiter(limit=30, window_seconds=60)  # per user
+MAX_UPLOAD_BYTES = int(os.environ.get("TRUEACRE_MAX_UPLOAD_MB", "20")) * 1024 * 1024
+MAX_ROWS = int(os.environ.get("TRUEACRE_MAX_UPLOAD_ROWS", "500000"))
+UPLOAD_LIMIT = RateLimiter(limit=int(os.environ.get("TRUEACRE_UPLOAD_LIMIT", "30")), window_seconds=60)  # per user per minute
 TRUE_WORDS, FALSE_WORDS = {"true", "t", "yes", "y", "1"}, {"false", "f", "no", "n", "0"}
 
 

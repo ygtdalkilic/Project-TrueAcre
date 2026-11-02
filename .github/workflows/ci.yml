@@ -10,12 +10,12 @@ on:
 permissions:
   contents: read  # every job only reads the repository; nothing here needs write access
 
-# Runner image is named rather than ubuntu-latest, so an image change is a deliberate edit here, not a surprise.
+# Runner image is named rather than ubuntu-latest, so an image change is a deliberate one-line edit.
 
 jobs:
   python:
     name: Engine and API tests (Python ${{ matrix.python }})
-    runs-on: ubuntu-26.04
+    runs-on: &runner ubuntu-26.04  # defined once here; the other jobs reuse it
     strategy:
       fail-fast: false
       matrix:
@@ -32,7 +32,7 @@ jobs:
 
   vulnerabilities:
     name: Known vulnerabilities in dependencies
-    runs-on: ubuntu-26.04
+    runs-on: *runner
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -50,7 +50,7 @@ jobs:
 
   web:
     name: Dashboard build
-    runs-on: ubuntu-26.04
+    runs-on: *runner
     defaults:
       run:
         working-directory: web
@@ -66,7 +66,7 @@ jobs:
 
   container:
     name: Container builds
-    runs-on: ubuntu-26.04
+    runs-on: *runner
     steps:
       - uses: actions/checkout@v7
       - run: docker build -t trueacre:ci .

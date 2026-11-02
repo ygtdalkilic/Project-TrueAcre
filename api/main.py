@@ -12,6 +12,8 @@ Configuration (environment variables, all optional unless noted):
   TRUEACRE_ALLOWED_HOSTS  comma-separated Host values the server answers to (default: any)
   TRUEACRE_LLM_PROVIDER   enables plain-English explanations (see engine/explain.py)
   NASS_API_KEY            enables the USDA county-yield import (see api/usda.py)
+  TRUEACRE_*_LIMIT, TRUEACRE_MAX_UPLOAD_MB, TRUEACRE_MAX_UPLOAD_ROWS, TRUEACRE_*_TIMEOUT
+                          rate limits, upload caps, and network timeouts; defaults in the README settings table
 
 Put secrets in a gitignored .env and start with: uvicorn api.main:app --reload --env-file .env
 """

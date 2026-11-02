@@ -1,10 +1,11 @@
 import pandas as pd
 import pytest
 
-from data.generate import generate
+from data.generate import REPORTING_JITTER, generate
 from data.schemas import SeedPurchase, columns
 from data.geography import neighbors, normalize_county, place
 from engine.reconcile import area_dealers, reconcile
+from engine.score import ACRE_TOLERANCE
 from engine.resolve import resolve
 
 
@@ -179,21 +180,23 @@ def test_against_synthetic_ground_truth():
     assert len(out) == 150 * 2
 
     clean = out[out.case_type == "clean"]
-    assert (clean.licensed_acres - clean.true_licensed_acres).abs().max() < 0.1
-    # honest growers: declared acres never exceed licensed by more than the 1% reporting jitter
-    assert (clean.acre_gap <= 0.011 * clean.declared_acres).all()
+    assert (clean.licensed_acres - clean.true_licensed_acres).abs().max() < 0.1  # truth is rounded to 0.1 acre
+    # honest growers: declared acres exceed licensed ones by at most the reporting jitter, plus 0.05 acre
+    # because declared acres are rounded to one decimal
+    jitter = 1 - 1 / REPORTING_JITTER[1]
+    assert (clean.acre_gap <= jitter * clean.declared_acres + 0.05).all()
 
-    # ghost seed: bought for at most ~63% of planted acres, so the acre gap is always large
+    # ghost seed: the acre gap always exceeds what the score treats as noise, so it can be flagged
     ghost = out[out.case_type == "ghost_seed"]
-    assert (ghost.acre_gap > 0.3 * ghost.declared_acres).all()
+    assert (ghost.acre_gap > ACRE_TOLERANCE * ghost.declared_acres).all()
     assert (ghost.dealer_coverage == 1.0).all()
 
     # split brand: with a statement, the other company's acres close the gap; without one, it stays open
     split = out[out.case_type == "split_brand"]
     assert (split.dealer_coverage == 1.0).all()
     stated, unstated = split[split.has_statement], split[~split.has_statement]
-    assert (stated.acre_gap <= 0.011 * stated.declared_acres).all()
-    assert (unstated.acre_gap > 0.25 * unstated.declared_acres).all()
+    assert (stated.acre_gap <= jitter * stated.declared_acres + 0.05).all()
+    assert (unstated.acre_gap > ACRE_TOLERANCE * unstated.declared_acres).all()
 
     # missing dealer: the engine sees fewer licensed acres than were really bought
     missing = out[out.case_type == "missing_dealer"]

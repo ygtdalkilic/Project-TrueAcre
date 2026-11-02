@@ -31,7 +31,7 @@ def test_email_check_is_linear_on_hostile_input():
         auth.normalize_email(hostile)
     assert time.perf_counter() - start < 0.5
     assert auth.normalize_email(" New@Mail.Example.co.uk ") == "new@mail.example.co.uk"
-    for bad in ("bad", "a@b", "a@.b", "a@b..c", "a b@c.d", "a@b.c" + "x" * auth.MAX_EMAIL):
+    for bad in ("bad", "a@b", "a@.b", "a@b..c", "a b@c.d", "a@b.c" + "x" * models.EMAIL_LENGTH):
         with pytest.raises(HTTPException):
             auth.normalize_email(bad)
 

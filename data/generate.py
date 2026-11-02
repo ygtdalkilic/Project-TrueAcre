@@ -81,19 +81,48 @@ LAST_NAMES = ["Miller", "Schmidt", "Johnson", "Anderson", "Peterson", "Hansen", 
               "Olson", "Meyer", "Becker", "Wagner", "Fischer", "Weber", "Hoffman", "Koch", "Brandt"]
 # Elevators also take grain from people who are not this company's customers. Their tickets have no
 # owner in the registry and must never be linked to one. Surnames are chosen to resemble none above.
+# How third parties write a name: NAME_VARIANT_KINDS equally likely kinds, the first VERBATIM_NAME_KINDS
+# exact, then upper case, "Last, First", a middle initial, a "Farms" suffix, and a one-letter typo.
+NAME_VARIANT_KINDS = 10
+VERBATIM_NAME_KINDS = 5
 OTHER_SELLERS_PER_COUNTY = 2
 OTHER_LAST_NAMES = ["Novak", "Dvorak", "Kowalczyk", "Lindqvist", "Okafor", "Ramirez", "Nguyen", "Yamamoto"]
+
+DEFAULT_GROWERS = 200  # growers in the default dataset (demo, CLI, validation report)
+DEFAULT_SEASONS = (2024, 2025)
+
+# How the synthetic world behaves. Each range is (low, high): a uniform draw, or an inclusive count.
+FARM_ACRES = (100, 1500)  # a farm's planted acreage, drawn in steps of ACRE_STEP
+ACRE_STEP = 5
+PLANTED_DRIFT = (0.95, 1.05)  # a farm's acreage from one season to the next
+REPORTING_JITTER = (0.99, 1.01)  # acres declared on the government form versus acres really planted
+OVERBUY = (1.0, 1.05)  # seed bought versus seed needed: growers round up
+VARIETIES_PER_GROWER = (1, 3)
+GHOST_BOUGHT_SHARE = (0.2, 0.6)  # share of the acreage a replanting grower still buys licensed seed for
+SPLIT_BRAND_OTHER_SHARE = (0.3, 0.7)  # share a split-brand grower plants with another company's seed
+HIDDEN_PURCHASE_SHARE = (0.4, 0.8)  # share of seed bought from a dealer that does not report
+COUNTY_YIELD_NOISE = 2.0  # bu/acre: standard deviation of a season's county mean around its typical yield
+COUNTY_YIELD_STD = (5.0, 7.0)  # bu/acre: spread of grower yields within a county-season
+MIN_YIELD = 15.0  # bu/acre: floor for a disastrous season
+DELIVERED_SHARE = (0.9, 1.0)  # share of the harvest that reaches an elevator in the data
+ELEVATORS_PER_GROWER = (1, 2)
+NON_CUSTOMER_YIELD_FACTOR = (0.8, 1.1)  # a non-customer's yield relative to the county's typical yield
 
 
 def _frame(rows, row_type) -> pd.DataFrame:
     return pd.DataFrame([asdict(r) for r in rows], columns=columns(row_type))
 
 
+def _farm_acres(rng: np.random.Generator) -> int:
+    """A farm's acreage: FARM_ACRES, in steps of ACRE_STEP."""
+    return int(rng.integers(FARM_ACRES[0] // ACRE_STEP, FARM_ACRES[1] // ACRE_STEP + 1)) * ACRE_STEP
+
+
 def _name_variant(name: str, rng: np.random.Generator) -> str:
     """One plausible way the same person is written on an external record."""
     first, last = name.split(" ")
-    kind = int(rng.integers(0, 10))
-    if kind < 5:
+    kind = int(rng.integers(0, NAME_VARIANT_KINDS))
+    if kind < VERBATIM_NAME_KINDS:
         return name
     if kind == 5:
         return name.upper()
@@ -110,8 +139,8 @@ def _name_variant(name: str, rng: np.random.Generator) -> str:
 
 
 def generate(
-    n_growers: int = 200,
-    seasons: tuple[int, ...] = (2024, 2025),
+    n_growers: int = DEFAULT_GROWERS,
+    seasons: tuple[int, ...] = DEFAULT_SEASONS,
     n_ghost: int = 10,
     n_missing_dealer: int = 10,
     seed: int = DEFAULT_SEED,
@@ -138,7 +167,7 @@ def generate(
 
     county_yields = [
         CountyYield(county, state, season, CROP,
-                    round(base + rng.normal(0, 2.0), 1), round(rng.uniform(5.0, 7.0), 1))
+                    round(base + rng.normal(0, COUNTY_YIELD_NOISE), 1), round(rng.uniform(*COUNTY_YIELD_STD), 1))
         for county, state, _, base in COUNTIES
         for season in seasons
     ]
@@ -193,21 +222,22 @@ def generate(
 
     for i, (g, grower_type) in enumerate(zip(growers, case_type)):
         visible_dealers = [d for d in dealers if (d.county, d.state) == (g.county, g.state) and d.participating]
-        farm_size = int(rng.integers(20, 301)) * 5  # 100-1500 acres; a farm's size barely moves between seasons
+        farm_size = _farm_acres(rng)  # a farm's size barely moves between seasons
         for season_no, season in enumerate(seasons):
             # A ghost-seed grower buys licensed seed once, then replants saved seed in the seasons after.
             ctype = "clean" if grower_type == "ghost_seed" and season_no == 0 else grower_type
-            planted = float(round(farm_size * rng.uniform(0.95, 1.05) / 5) * 5)
-            other_acres = float(round(planted * rng.uniform(0.3, 0.7))) if ctype == "split_brand" else 0.0
-            seed_acres = (planted - other_acres) * (rng.uniform(0.2, 0.6) if ctype == "ghost_seed" else 1.0)
-            hidden_frac = rng.uniform(0.4, 0.8) if ctype in ("missing_dealer", "neighbor_dealer") else 0.0
+            planted = float(round(farm_size * rng.uniform(*PLANTED_DRIFT) / ACRE_STEP) * ACRE_STEP)
+            other_acres = float(round(planted * rng.uniform(*SPLIT_BRAND_OTHER_SHARE))) if ctype == "split_brand" else 0.0
+            seed_acres = (planted - other_acres) * (rng.uniform(*GHOST_BOUGHT_SHARE) if ctype == "ghost_seed" else 1.0)
+            hidden_frac = (rng.uniform(*HIDDEN_PURCHASE_SHARE) if ctype in ("missing_dealer", "neighbor_dealer")
+                           else 0.0)
 
-            k = int(rng.integers(1, 4))  # 1-3 varieties
+            k = int(rng.integers(VARIETIES_PER_GROWER[0], VARIETIES_PER_GROWER[1] + 1))
             chosen = [varieties[i] for i in rng.choice(len(varieties), size=k, replace=False)]
             licensed = 0.0
             hidden_units = 0
             for v in chosen:
-                overbuy = rng.uniform(1.0, 1.05)
+                overbuy = rng.uniform(*OVERBUY)
                 units = math.ceil(seed_acres / k * v.target_seeds_per_acre / v.seeds_per_unit * overbuy)
                 licensed += units * v.seeds_per_unit / v.target_seeds_per_acre
                 hidden = int(round(units * hidden_frac))
@@ -225,14 +255,14 @@ def generate(
             report_id = f"A{len(reports) + 1:05d}"
             reports.append(
                 AcreageReport(report_id, _name_variant(g.name, rng) if messy_names else g.name, true_farm[i],
-                              g.county, g.state, season, CROP, round(planted * rng.uniform(0.99, 1.01), 1))
+                              g.county, g.state, season, CROP, round(planted * rng.uniform(*REPORTING_JITTER), 1))
             )
             links.append(RecordLink(report_id, g.grower_id))
 
             cy = yield_lookup[(g.county, g.state, season)]
-            realized_yield = max(15.0, rng.normal(cy.mean_yield, cy.std_yield))
-            bushels = planted * realized_yield * rng.uniform(0.9, 1.0)  # some grain never reaches a visible elevator
-            n_elevators = int(rng.integers(1, 3))
+            realized_yield = max(MIN_YIELD, rng.normal(cy.mean_yield, cy.std_yield))
+            bushels = planted * realized_yield * rng.uniform(*DELIVERED_SHARE)
+            n_elevators = int(rng.integers(ELEVATORS_PER_GROWER[0], ELEVATORS_PER_GROWER[1] + 1))
             for e, share in enumerate(rng.dirichlet(np.ones(n_elevators))):
                 receipt_id = f"R{len(receipts) + 1:05d}"
                 receipts.append(
@@ -250,7 +280,7 @@ def generate(
             for seller in sellers:
                 receipts.append(ElevatorReceipt(f"R{len(receipts) + 1:05d}", seller, county, state,
                                                 f"E-{county}-{state}-1", season, CROP,
-                                                float(round(rng.integers(20, 301) * 5 * base * rng.uniform(0.8, 1.1)))))
+                                                float(round(_farm_acres(rng) * base * rng.uniform(*NON_CUSTOMER_YIELD_FACTOR)))))
 
     return {
         "growers": _frame(growers, Grower),
