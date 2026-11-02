@@ -4,10 +4,6 @@ Every uploaded table is encrypted with AES-256-GCM before it reaches the databas
 only in memory when a company's scores are computed. A database leak on its own therefore exposes
 no grower data: the key lives in Secret Manager (DATA_ENCRYPTION_KEY), never in the database or
 the repository. GCM also authenticates the data, so tampering is detected on read.
-
-Configuration:
-  DATA_ENCRYPTION_KEY  urlsafe-base64 of 32 random bytes (make one with `python -m api.crypto`);
-                       required in production, derived from SESSION_SECRET in development
 """
 import base64
 import hashlib

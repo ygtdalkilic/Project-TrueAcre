@@ -222,7 +222,7 @@ def generate(
 
     for i, (g, grower_type) in enumerate(zip(growers, case_type)):
         visible_dealers = [d for d in dealers if (d.county, d.state) == (g.county, g.state) and d.participating]
-        farm_size = _farm_acres(rng)  # a farm's size barely moves between seasons
+        farm_size = _farm_acres(rng)
         for season_no, season in enumerate(seasons):
             # A ghost-seed grower buys licensed seed once, then replants saved seed in the seasons after.
             ctype = "clean" if grower_type == "ghost_seed" and season_no == 0 else grower_type

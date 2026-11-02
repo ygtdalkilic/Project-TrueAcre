@@ -35,7 +35,7 @@ export default function Scores({ config, onNeedData }) {
   if (!scores) return <p className="muted">Loading…</p>
 
   const seasons = [...new Set(scores.map((s) => s.season))].sort()
-  const place = (s) => `${s.county}, ${s.state}` // county names repeat across states
+  const place = (s) => `${s.county}, ${s.state}`
   const counties = [...new Set(scores.map(place))].sort()
   const crops = [...new Set(scores.map((s) => s.crop))].sort()
   const rows = scores.filter(

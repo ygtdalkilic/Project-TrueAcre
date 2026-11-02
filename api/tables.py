@@ -5,7 +5,7 @@ depending on each other.
 """
 from data import schemas
 
-TABLES = {  # upload name -> row schema
+TABLES = {
     "growers": schemas.Grower,
     "dealers": schemas.Dealer,
     "varieties": schemas.Variety,

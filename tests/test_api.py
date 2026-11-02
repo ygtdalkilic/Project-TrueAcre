@@ -20,8 +20,6 @@ from tests.test_explain import fake_server
 TRUTH = generate(seed=DEFAULT_SEED)["ground_truth"]  # the demo dataset's answer key
 
 
-# --- public surface and protection ---------------------------------------------------------------
-
 def test_email_check_is_linear_on_hostile_input():
     """CodeQL py/polynomial-redos: overlapping groups made a failing match quadratic in the input length."""
     hostile = "a@" + "." * 100_000 + " "
@@ -68,8 +66,6 @@ def test_sign_in_is_rate_limited(client, monkeypatch):
     r = client.post("/api/auth/dev", json={"email": "a@x.com"})
     assert r.status_code == 429 and "retry-after" in r.headers
 
-
-# --- accounts and companies ----------------------------------------------------------------------
 
 def test_google_sign_in_verifies_the_token(client, monkeypatch):
     monkeypatch.setattr(auth, "GOOGLE_CLIENT_ID", "client-id")
@@ -164,8 +160,6 @@ def test_logout_everywhere_invalidates_old_cookie(client):
     assert client.get("/api/me").status_code == 401
 
 
-# --- data intake ----------------------------------------------------------------------------------
-
 def test_templates_and_validation(client):
     login(client, "a@x.com")
     create_org(client, "Acme")
@@ -216,7 +210,7 @@ def test_demo_data_scores_match_the_engine(client):
     assert sum(a["acres"] for a in body["acreage_reports"]) == pytest.approx(flagged["declared_acres"])
     cy = body["county_yield"]
     assert cy["mean_yield"] + YIELD_SIGMAS * cy["std_yield"] == pytest.approx(flagged["yield_ceiling"])
-    assert body["clear"]["acres"] > 0 and body["clear"]["units"]["units"] > 0  # what one more receipt must show
+    assert body["clear"]["acres"] > 0 and body["clear"]["units"]["units"] > 0
     assert [h["season"] for h in body["history"]] == sorted(h["season"] for h in body["history"])
     assert flagged["season"] in [h["season"] for h in body["history"]]
     assert client.get("/api/growers/NOPE/seasons/2024/crops/soybeans").status_code == 404
@@ -289,8 +283,6 @@ def test_companies_cannot_see_each_other(client):
     assert client.get(f"/api/growers/{grower['grower_id']}/seasons/{grower['season']}/crops/{grower['crop']}").status_code == 409
     assert client.get("/api/links/review").status_code == 409
 
-
-# --- explanations -----------------------------------------------------------------------------------
 
 def test_explanations_disabled_without_a_provider(client, monkeypatch):
     monkeypatch.setattr(scores_module, "EXPLAIN_CLIENT", None)

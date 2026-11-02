@@ -10,11 +10,6 @@ the user's session version. Bumping the version signs the user out everywhere.
 
 Dev login exists only when TRUEACRE_DEV_LOGIN=1 and the server is not in production, so the app
 can be used locally without a Google client ID.
-
-Configuration:
-  GOOGLE_CLIENT_ID    OAuth web client ID from the Google Cloud console; unset = Google sign-in off
-  SESSION_SECRET      signs session cookies; required in production, random per process otherwise
-  TRUEACRE_DEV_LOGIN  "1" enables the dev login endpoint outside production
 """
 import os
 import re
@@ -42,8 +37,7 @@ if not SESSION_SECRET:
 SESSION_COOKIE = "trueacre_session"
 SESSION_MAX_AGE = 7 * 24 * 3600  # seconds; static on purpose: the privacy page promises "up to seven days"
 LOGIN_LIMIT = RateLimiter(limit=int(os.environ.get("TRUEACRE_LOGIN_LIMIT", "10")), window_seconds=60)  # per IP per minute
-# Domain labels exclude the dot, so every character has exactly one place in the pattern and a failing
-# match is linear. The older '[^@\s]+\.[^@\s]+' let both groups claim dots and backtracked quadratically.
+# Domain labels exclude the dot, so a failing match is linear; overlapping groups backtrack quadratically (ReDoS).
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+$")
 
 router = APIRouter(prefix="/api", tags=["auth"])
@@ -64,8 +58,6 @@ def verify_google_token(credential: str) -> dict:
         raise ValueError("Google has not verified this email address")
     return claims
 
-
-# --- sessions -----------------------------------------------------------------------------------
 
 def set_session(response: Response, user: models.User, org_id: int | None) -> None:
     token = _serializer.dumps({"uid": user.id, "org": org_id, "sv": user.session_version})
@@ -124,8 +116,6 @@ def require_admin(membership: models.Membership = Depends(current_membership)) -
         raise HTTPException(status_code=403, detail="admins only")
     return membership
 
-
-# --- sign-in ------------------------------------------------------------------------------------
 
 def _sign_in(db: Session, response: Response, request: Request, method: str, *, email: str, name: str,
              google_sub: str | None = None, picture: str | None = None) -> dict:
