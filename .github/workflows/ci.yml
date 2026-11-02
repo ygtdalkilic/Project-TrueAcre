@@ -10,17 +10,19 @@ on:
 permissions:
   contents: read  # every job only reads the repository; nothing here needs write access
 
+# Runner image is named rather than ubuntu-latest, so an image change is a deliberate edit here, not a surprise.
+
 jobs:
   python:
     name: Engine and API tests (Python ${{ matrix.python }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
         python: ["3.12", "3.14"]  # README minimum and the version used for development
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -30,15 +32,15 @@ jobs:
 
   vulnerabilities:
     name: Known vulnerabilities in dependencies
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install pip-audit
       - run: pip-audit -r requirements.txt --strict
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - run: npm ci --ignore-scripts
@@ -48,13 +50,13 @@ jobs:
 
   web:
     name: Dashboard build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -64,7 +66,7 @@ jobs:
 
   container:
     name: Container builds
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build -t trueacre:ci .
