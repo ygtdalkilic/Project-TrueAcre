@@ -9,7 +9,7 @@
 <body>
 <main>
   <h1>Privacy Policy</h1>
-  <p class="muted">Last updated: 12 September 2026 · <a href="/">Back to TrueAcre</a> · <a href="/terms.html">Terms of Use</a></p>
+  <p class="muted">Last updated: 1 November 2026 · <a href="/">Back to TrueAcre</a> · <a href="/terms.html">Terms of Use</a></p>
 
   <p>TrueAcre ("the Service") is operated by Yigit Dalkilic ("we", "us"). This policy explains what data the Service handles, why, and what you can do about it. It is written to match exactly what the software does.</p>
 
@@ -21,13 +21,14 @@
   <p>We keep one cookie, a signed session cookie, so you stay signed in for up to seven days. It contains no tracking identifiers and is not shared with anyone. We use no analytics, advertising, or third-party tracking of any kind.</p>
 
   <h2>3. Data uploaded by companies</h2>
-  <p>A company uploads seven tables: growers, dealers, varieties, seed purchases, acreage reports, elevator receipts, and county yields. These may contain personal data about growers, such as names and farm numbers. This data is:</p>
+  <p>A company uploads seven tables: growers, dealers, varieties, seed purchases, acreage reports, elevator receipts, and county yields, and optionally an eighth, seed statements (acres a grower reports planting with other seed). These may contain personal data about growers, such as names and farm numbers. This data is:</p>
   <ul>
     <li>visible only to members of the company that uploaded it;</li>
     <li>encrypted at rest with a key held separately from the database;</li>
     <li>processed solely to compute the Fair-Play Score and its supporting evidence for that company;</li>
     <li>never used to train models, sold, or shared between companies.</li>
   </ul>
+  <p><b>Growers who sign in.</b> A company may invite a grower to see their own records. A grower user sees only the records the company holds about that one grower, the arithmetic behind each season's score, and can file a seed statement (acres planted with other seed). A filed statement is stored with the grower ID, season, crop, acres, who filed it, and when; these rows are not encrypted like uploaded tables, contain no name, and are visible to the company's staff. Every statement is recorded in the company's audit log.</p>
 
   <h2>4. Optional plain-English explanations</h2>
   <p>If a company has this feature enabled and a user clicks "Explain in plain English", the evidence for that one grower-season (the numbers and record names shown on screen) is sent to the configured language-model provider to write a summary. Nothing is sent unless a user clicks the button. The provider is shown next to the button. For the hosted Service the provider is Google (Gemini API), subject to Google's terms.</p>

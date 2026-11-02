@@ -22,7 +22,7 @@ export default function Links({ onNeedData }) {
   const decide = (item, growerId) => api.decideLink(item.record_id, growerId, null).then(refresh).catch((e) => setError(e.message))
   const revert = (item) => api.revertLink(item.record_id).then(refresh).catch((e) => setError(e.message))
 
-  if (needData) return <p>No records to review yet: upload all seven tables first. <button className="link" onClick={onNeedData}>Go to Data</button></p>
+  if (needData) return <p>No records to review yet: upload all required tables first. <button className="link" onClick={onNeedData}>Go to Data</button></p>
   if (error) return <p className="error">{error}</p>
   if (!items) return <p className="muted">Loading…</p>
 
@@ -55,7 +55,7 @@ export default function Links({ onNeedData }) {
                   <td title={STATUS[it.status].help}><span className={`label ${STATUS[it.status].cls}`}>{STATUS[it.status].text}</span></td>
                   <td>{it.record_id} <span className="muted small">{it.source === 'acreage_reports' ? 'acreage' : 'elevator'}</span></td>
                   <td>{it.name}{it.reason && <div className="muted small">{it.reason}</div>}</td>
-                  <td>{it.county}</td>
+                  <td>{it.county}, {it.state}</td>
                   <td>{it.season}</td>
                   <td className="num">{fmt(it.amount)} {it.source === 'acreage_reports' ? 'ac' : 'bu'}</td>
                   <td>

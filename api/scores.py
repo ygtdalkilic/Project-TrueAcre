@@ -10,6 +10,7 @@ from api.auth import current_membership
 from api.db import get_db
 from api.pipeline import results
 from api.security import RateLimiter
+from engine.clear import what_would_clear
 from engine.explain import ExplainError, LLMClient, explain
 from engine.reconcile import YIELD_SIGMAS
 
@@ -22,9 +23,11 @@ EXPLAIN_LIMIT = RateLimiter(limit=20, window_seconds=60)  # per company; these c
 SCORE_COLUMNS = [
     "grower_id", "name", "county", "state", "season", "crop", "fair_play_score", "label",
     "gap_fraction", "unsupported_acre_fraction", "unsupported_bushel_fraction", "coverage",
-    "licensed_acres", "declared_acres", "delivered_bushels", "yield_ceiling", "max_bushels",
-    "acre_gap", "bushel_gap", "has_purchases", "has_acreage", "has_deliveries",
+    "licensed_acres", "other_seed_acres", "declared_acres", "delivered_bushels", "yield_ceiling", "max_bushels",
+    "acre_gap", "bushel_gap", "has_purchases", "has_acreage", "has_deliveries", "has_statement",
+    "explained_share", "replant_signal", "replant_from_season",
 ]
+HISTORY_COLUMNS = ["season", "declared_acres", "licensed_acres", "other_seed_acres", "explained_share", "label"]
 
 
 def _records(df: pd.DataFrame) -> list[dict]:
@@ -62,7 +65,9 @@ def _evidence(res: dict, grower_id: str, season: int, crop: str) -> dict:
 
     acreage, receipts = own(resolved["acreage_reports"]), own(resolved["elevator_receipts"])
     yields = tables["county_yields"]
-    yields = yields[(yields["county"] == row["county"]) & (yields["season"] == season) & (yields["crop"] == crop)]
+    yields = yields[(yields["county"] == row["county"]) & (yields["state"] == row["state"])
+                    & (yields["season"] == season) & (yields["crop"] == crop)]
+    history = scores[(scores["grower_id"] == grower_id) & (scores["crop"] == crop)].sort_values("season")
 
     return {
         "score": _records(match[SCORE_COLUMNS])[0],
@@ -74,6 +79,8 @@ def _evidence(res: dict, grower_id: str, season: int, crop: str) -> dict:
         "elevator_receipts": _records(receipts[["receipt_id", "seller_name", "elevator_id", "match_method", "crop", "bushels"]]),
         "county_yield": _records(yields[["county", "state", "mean_yield", "std_yield"]])[0] if not yields.empty else None,
         "yield_sigmas": YIELD_SIGMAS,
+        "clear": what_would_clear(row, purchases.rename(columns={"name": "variety"}), tables["dealers"]),
+        "history": _records(history[HISTORY_COLUMNS]),
     }
 
 

@@ -2,6 +2,9 @@
 
 A company (Organization) owns its datasets. A user belongs to companies through memberships
 with a role. Invites let an admin add people by email before they have signed in.
+
+Staff (admin, analyst) see the whole company. A grower member is linked to one grower record and
+sees only that grower's own seasons (api/grower.py); every staff route refuses the grower role.
 """
 from datetime import datetime, timezone
 
@@ -10,7 +13,8 @@ from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from api.db import Base
 
-ROLES = ("admin", "analyst")
+STAFF_ROLES = ("admin", "analyst")
+ROLES = (*STAFF_ROLES, "grower")
 
 
 def now() -> datetime:
@@ -48,6 +52,7 @@ class Membership(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
     org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), primary_key=True)
     role: Mapped[str] = mapped_column(String(16))
+    grower_id: Mapped[str | None] = mapped_column(String(40))  # the grower record a 'grower' member is
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
     user: Mapped[User] = relationship(back_populates="memberships")
@@ -62,6 +67,7 @@ class Invite(Base):
     org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
     email: Mapped[str] = mapped_column(String(320))
     role: Mapped[str] = mapped_column(String(16))
+    grower_id: Mapped[str | None] = mapped_column(String(40))  # set for 'grower' invites
     invited_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))  # null once that account is deleted
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -101,6 +107,24 @@ class LinkDecision(Base):
     decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
+class GrowerStatement(Base):
+    """A seed statement a grower filed themselves on the self-check page: acres of a crop planted in a
+    season with seed not bought from this company. It replaces any uploaded seed_statements row for the
+    same grower, season, and crop, and survives later uploads of that table."""
+
+    __tablename__ = "grower_statements"
+    __table_args__ = (UniqueConstraint("org_id", "grower_id", "season", "crop"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
+    grower_id: Mapped[str] = mapped_column(String(40))
+    season: Mapped[int]
+    crop: Mapped[str] = mapped_column(String(40))
+    other_seed_acres: Mapped[float]
+    submitted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
 class AuditEvent(Base):
     """Who did what, when, from where. No foreign keys on purpose: the log must outlive the
     user and the company it describes."""
@@ -118,6 +142,6 @@ class AuditEvent(Base):
 
 def purge_organization(db: Session, org_id: int) -> None:
     """Delete a company and everything it owns. Audit events are kept. Callers commit."""
-    for model in (Dataset, Invite, Membership, LinkDecision):
+    for model in (Dataset, Invite, Membership, LinkDecision, GrowerStatement):
         db.execute(delete(model).where(model.org_id == org_id))
     db.execute(delete(Organization).where(Organization.id == org_id))

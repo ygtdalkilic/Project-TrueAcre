@@ -3,7 +3,8 @@ import pytest
 
 from data.generate import generate
 from data.schemas import SeedPurchase, columns
-from engine.reconcile import reconcile
+from data.geography import neighbors, normalize_county, place
+from engine.reconcile import area_dealers, reconcile
 from engine.resolve import resolve
 
 
@@ -119,6 +120,58 @@ def test_each_licensed_crop_is_scored_separately(tiny):
     assert "corn" not in out.index.get_level_values("crop")  # still not a licensed crop
 
 
+def test_seed_statement_explains_other_seed_acres(tiny):
+    """G1 states 30 acres of another company's seed: gap 150 - 100 - 30 = 20, ceiling covers 130 acres."""
+    assert not reconcile(tiny)["has_statement"].any()  # table absent: nobody has a statement
+    tiny["seed_statements"] = pd.DataFrame({
+        "grower_id": ["G1"], "season": [2024], "crop": ["soybeans"], "other_seed_acres": [30.0],
+    })
+    out = reconcile(tiny).set_index("grower_id")
+    g1 = out.loc["G1"]
+    assert g1.has_statement and g1.other_seed_acres == 30.0
+    assert g1.acre_gap == 20.0
+    assert g1.max_bushels == 130 * 65.0 and g1.bushel_gap == 7500.0 - 130 * 65.0
+    assert not out.loc["G2", "has_statement"] and out.loc["G2", "other_seed_acres"] == 0.0
+
+
+def test_same_county_name_in_another_state_stays_separate(tiny):
+    """G4 farms in a county also named X, but in NE, with its own yield and a non-reporting dealer."""
+    tiny["growers"] = pd.concat([tiny["growers"], pd.DataFrame({
+        "grower_id": ["G4"], "name": ["d"], "county": ["X"], "state": ["NE"],
+    })], ignore_index=True)
+    tiny["dealers"] = pd.concat([tiny["dealers"], pd.DataFrame({
+        "dealer_id": ["D3"], "name": ["d3"], "county": ["X"], "state": ["NE"], "participating": [False],
+    })], ignore_index=True)
+    tiny["seed_purchases"] = pd.concat([tiny["seed_purchases"], pd.DataFrame(
+        [("P4", "G4", "D3", "V1", 2024, 10)], columns=columns(SeedPurchase))], ignore_index=True)
+    tiny["county_yields"] = pd.concat([tiny["county_yields"], pd.DataFrame({
+        "county": ["X"], "state": ["NE"], "season": [2024], "crop": ["soybeans"], "mean_yield": [30.0], "std_yield": [2.0],
+    })], ignore_index=True)
+
+    out = reconcile(tiny)
+    assert not out.duplicated(["grower_id", "season", "crop"]).any()
+    rows = out.set_index("grower_id")
+    assert rows.loc["G1", "yield_ceiling"] == 65.0 and rows.loc["G1", "dealer_coverage"] == 0.5
+    assert rows.loc["G4", "yield_ceiling"] == 36.0 and rows.loc["G4", "dealer_coverage"] == 0.0
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("Story", "story"), ("Story County", "story"), ("STORY COUNTY", "story"),
+    ("St. Louis County", "stlouis"), ("Saint Louis", "stlouis"), ("St. Louis city", "stlouiscity"),
+    ("De Witt", "dewitt"), ("DeWitt County", "dewitt"), ("Doña Ana", "donaana"), ("Prince George's", "princegeorges"),
+])
+def test_normalize_county(raw, expected):
+    assert normalize_county(raw) == expected
+
+
+def test_census_adjacency_loads_and_names_are_distinct():
+    adjacency = neighbors()
+    assert len(adjacency) > 3000  # every US county and equivalent
+    assert place("Boone", "IA") in adjacency[place("Story County", "IA")]
+    assert place("Boone", "IL") not in adjacency[place("Story County", "IA")]  # same name, other state
+    assert place("Richmond city", "VA") != place("Richmond County", "VA")
+
+
 def test_against_synthetic_ground_truth():
     tables = resolve(generate(n_growers=150, n_ghost=8, n_missing_dealer=8, seed=3, messy_names=False))
     truth = tables["ground_truth"].rename(columns={"licensed_acres": "true_licensed_acres"})
@@ -135,7 +188,32 @@ def test_against_synthetic_ground_truth():
     assert (ghost.acre_gap > 0.3 * ghost.declared_acres).all()
     assert (ghost.dealer_coverage == 1.0).all()
 
+    # split brand: with a statement, the other company's acres close the gap; without one, it stays open
+    split = out[out.case_type == "split_brand"]
+    assert (split.dealer_coverage == 1.0).all()
+    stated, unstated = split[split.has_statement], split[~split.has_statement]
+    assert (stated.acre_gap <= 0.011 * stated.declared_acres).all()
+    assert (unstated.acre_gap > 0.25 * unstated.declared_acres).all()
+
     # missing dealer: the engine sees fewer licensed acres than were really bought
     missing = out[out.case_type == "missing_dealer"]
     assert (missing.licensed_acres < missing.true_licensed_acres).all()
     assert (missing.dealer_coverage < 1.0).all()
+
+    # neighbor dealer: every dealer at home reports, but one next door does not, and coverage shows it
+    neighbor = out[out.case_type == "neighbor_dealer"]
+    assert (neighbor.licensed_acres < neighbor.true_licensed_acres).all()
+    assert (neighbor.dealer_coverage < 1.0).all()
+
+
+def test_coverage_includes_bordering_counties():
+    """Story, IA borders Boone, IA. A non-reporting dealer in Boone lowers Story's coverage; one in
+    Wright, IA (not a neighbor) does not. An unknown county falls back to every dealer in its state."""
+    dealers = pd.DataFrame({
+        "dealer_id": ["D1", "D2", "D3", "D4"], "name": ["a", "b", "c", "d"],
+        "county": ["Story", "Story County", "BOONE", "Wright"], "state": ["IA", "IA", "ia", "IA"],
+        "participating": [True, True, False, False],
+    })
+    assert set(area_dealers(dealers, "Story", "IA")["dealer_id"]) == {"D1", "D2", "D3"}
+    assert set(area_dealers(dealers, "Nowhere", "IA")["dealer_id"]) == {"D1", "D2", "D3", "D4"}
+    assert area_dealers(dealers, "Story", "NE").empty

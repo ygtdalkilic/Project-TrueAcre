@@ -1,13 +1,22 @@
 """Synthetic data generator with seeded ghost-seed cases as ground truth.
 
 Crop is soybeans only. Every grower is honest ("clean") unless designated:
-  ghost_seed      buys seed for only part of the acreage and plants the rest with saved seed
+  ghost_seed      buys licensed seed for the first season, then buys for only part of the
+                  acreage and plants the rest with saved seed (the first season is recorded as clean)
+  split_brand     honest, but plants part of the acreage with another company's seed, which
+                  this company never sees a receipt for
   missing_dealer  honest, but part of the seed came from a dealer that does not report
                   into the system, so those receipts are invisible
+  neighbor_dealer the same, but the non-reporting dealer is across the line in a bordering
+                  county, while every dealer in the grower's own county reports
 
-Ghost-seed growers are placed in counties where every dealer participates, and
-missing-dealer growers in counties with a non-participating dealer, so the engine
-can be tested on both "review recommended" and "insufficient data" outcomes.
+Ghost-seed and split-brand growers are placed where every dealer in the county and in the
+counties bordering it participates: in purchases, acreage, and deliveries they look the same.
+Neighbor-dealer growers are placed in fully reporting counties that border a non-reporting
+dealer, and missing-dealer growers in counties with one, so every outcome is tested.
+
+Most grower-seasons (STATEMENT_SHARE) have a seed statement on file. Split-brand growers state
+their other-seed acres truthfully; ghost-seed growers state 0, since saved seed is what they hide.
 
 External records (acreage reports, elevator receipts) do not carry grower_id. They carry
 the grower's name as someone else wrote it (see _name_variant) plus county and, for acreage,
@@ -24,6 +33,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from data.geography import neighbors, place
 from data.schemas import (
     AcreageReport,
     CountyYield,
@@ -33,6 +43,7 @@ from data.schemas import (
     Grower,
     RecordLink,
     SeedPurchase,
+    SeedStatement,
     Variety,
     columns,
 )
@@ -42,6 +53,7 @@ SEEDS_PER_UNIT = 140_000  # one soybean seed unit (bag) holds 140,000 seeds
 DEFAULT_SEED = 42  # RNG seed for the default dataset used by the API and the CLI
 DEFAULT_OUT_DIR = Path(__file__).parent / "synthetic"  # where `python -m data.generate` writes CSVs
 REGISTERED_FARM_SHARE = 0.7  # share of growers whose FSA farm number the seed company already has on file
+STATEMENT_SHARE = 0.8  # share of grower-seasons with a seed statement (other-seed acres) on file
 
 # county, state, do all dealers report into the system, typical yield (bu/acre)
 COUNTIES = [
@@ -51,6 +63,7 @@ COUNTIES = [
     ("Champaign", "IL", True, 61.0),
     ("Wright", "IA", False, 54.0),
     ("Livingston", "IL", False, 59.0),
+    ("Boone", "IL", False, 60.0),  # same name as Boone, IA: county names are only unique within a state
 ]
 DEALERS_PER_COUNTY = 3  # in partial-coverage counties the last one does not report
 
@@ -66,6 +79,10 @@ FIRST_NAMES = ["James", "Mary", "Robert", "Linda", "David", "Karen", "Daniel", "
                "Thomas", "Nancy", "Mark", "Lisa", "Paul", "Sandra", "Steven", "Donna"]
 LAST_NAMES = ["Miller", "Schmidt", "Johnson", "Anderson", "Peterson", "Hansen", "Larson",
               "Olson", "Meyer", "Becker", "Wagner", "Fischer", "Weber", "Hoffman", "Koch", "Brandt"]
+# Elevators also take grain from people who are not this company's customers. Their tickets have no
+# owner in the registry and must never be linked to one. Surnames are chosen to resemble none above.
+OTHER_SELLERS_PER_COUNTY = 2
+OTHER_LAST_NAMES = ["Novak", "Dvorak", "Kowalczyk", "Lindqvist", "Okafor", "Ramirez", "Nguyen", "Yamamoto"]
 
 
 def _frame(rows, row_type) -> pd.DataFrame:
@@ -99,6 +116,8 @@ def generate(
     n_missing_dealer: int = 10,
     seed: int = DEFAULT_SEED,
     messy_names: bool = True,
+    n_split_brand: int = 10,
+    n_neighbor_dealer: int = 6,
 ) -> dict[str, pd.DataFrame]:
     """Build every table. `messy_names=False` writes registry names verbatim on external records,
     which makes every record resolvable and gives tests exact expectations."""
@@ -123,45 +142,65 @@ def generate(
         for county, state, _, base in COUNTIES
         for season in seasons
     ]
-    yield_lookup = {(y.county, y.season): y for y in county_yields}
+    yield_lookup = {(y.county, y.state, y.season): y for y in county_yields}
 
     county_idx = rng.integers(0, len(COUNTIES), size=n_growers)
     growers: list[Grower] = []
     true_farm: list[str] = []  # every grower has an FSA farm number; the registry only knows some of them
     used_names: set[tuple[str, int]] = set()
+    farms_in_county = [0] * len(COUNTIES)
     for i, c in enumerate(county_idx):
         while True:  # registry names are unique within a county
             name = f"{FIRST_NAMES[rng.integers(len(FIRST_NAMES))]} {LAST_NAMES[rng.integers(len(LAST_NAMES))]}"
             if (name, c) not in used_names:
                 break
         used_names.add((name, c))
-        farm = f"F{i + 1:06d}"
+        farms_in_county[c] += 1  # FSA numbers farms per county office, so the same number recurs in other counties
+        farm = f"{farms_in_county[c]}"
         true_farm.append(farm)
         registered = farm if rng.random() < REGISTERED_FARM_SHARE else None
         growers.append(Grower(f"G{i + 1:04d}", name, COUNTIES[c][0], COUNTIES[c][1], registered))
 
-    full_cov = [i for i, c in enumerate(county_idx) if COUNTIES[c][2]]
-    partial_cov = [i for i, c in enumerate(county_idx) if not COUNTIES[c][2]]
-    if n_ghost > len(full_cov) or n_missing_dealer > len(partial_cov):
+    keys = [place(county, state) for county, state, _, _ in COUNTIES]
+    own_full = [full for _, _, full, _ in COUNTIES]
+    area_full = [  # every dealer in this county and in the listed counties bordering it reports
+        all(own_full[k] for k in range(len(COUNTIES)) if k == c or keys[k] in neighbors().get(keys[c], ()))
+        for c in range(len(COUNTIES))
+    ]
+    full_cov = [i for i, c in enumerate(county_idx) if area_full[c]]
+    edge_cov = [i for i, c in enumerate(county_idx) if own_full[c] and not area_full[c]]
+    partial_cov = [i for i, c in enumerate(county_idx) if not own_full[c]]
+    if (n_ghost + n_split_brand > len(full_cov) or n_neighbor_dealer > len(edge_cov)
+            or n_missing_dealer > len(partial_cov)):
         raise ValueError("not enough growers in the right counties for the requested case counts")
     case_type = ["clean"] * n_growers
-    for i in rng.choice(full_cov, size=n_ghost, replace=False):
+    full_picks = rng.choice(full_cov, size=n_ghost + n_split_brand, replace=False)
+    for i in full_picks[:n_ghost]:
         case_type[i] = "ghost_seed"
+    for i in full_picks[n_ghost:]:
+        case_type[i] = "split_brand"
+    for i in rng.choice(edge_cov, size=n_neighbor_dealer, replace=False):
+        case_type[i] = "neighbor_dealer"
     for i in rng.choice(partial_cov, size=n_missing_dealer, replace=False):
         case_type[i] = "missing_dealer"
 
     purchases: list[SeedPurchase] = []
+    statements: list[SeedStatement] = []
     reports: list[AcreageReport] = []
     receipts: list[ElevatorReceipt] = []
     truth: list[GroundTruth] = []
     links: list[RecordLink] = []
 
-    for i, (g, ctype) in enumerate(zip(growers, case_type)):
-        visible_dealers = [d for d in dealers if d.county == g.county and d.participating]
-        for season in seasons:
-            planted = float(rng.integers(20, 301) * 5)  # 100-1500 acres in steps of 5
-            seed_acres = planted * (rng.uniform(0.2, 0.6) if ctype == "ghost_seed" else 1.0)
-            hidden_frac = rng.uniform(0.4, 0.8) if ctype == "missing_dealer" else 0.0
+    for i, (g, grower_type) in enumerate(zip(growers, case_type)):
+        visible_dealers = [d for d in dealers if (d.county, d.state) == (g.county, g.state) and d.participating]
+        farm_size = int(rng.integers(20, 301)) * 5  # 100-1500 acres; a farm's size barely moves between seasons
+        for season_no, season in enumerate(seasons):
+            # A ghost-seed grower buys licensed seed once, then replants saved seed in the seasons after.
+            ctype = "clean" if grower_type == "ghost_seed" and season_no == 0 else grower_type
+            planted = float(round(farm_size * rng.uniform(0.95, 1.05) / 5) * 5)
+            other_acres = float(round(planted * rng.uniform(0.3, 0.7))) if ctype == "split_brand" else 0.0
+            seed_acres = (planted - other_acres) * (rng.uniform(0.2, 0.6) if ctype == "ghost_seed" else 1.0)
+            hidden_frac = rng.uniform(0.4, 0.8) if ctype in ("missing_dealer", "neighbor_dealer") else 0.0
 
             k = int(rng.integers(1, 4))  # 1-3 varieties
             chosen = [varieties[i] for i in rng.choice(len(varieties), size=k, replace=False)]
@@ -180,6 +219,9 @@ def generate(
                                      v.variety_id, season, units - hidden)
                     )
 
+            if rng.random() < STATEMENT_SHARE:
+                statements.append(SeedStatement(g.grower_id, season, CROP, other_acres))
+
             report_id = f"A{len(reports) + 1:05d}"
             reports.append(
                 AcreageReport(report_id, _name_variant(g.name, rng) if messy_names else g.name, true_farm[i],
@@ -187,7 +229,7 @@ def generate(
             )
             links.append(RecordLink(report_id, g.grower_id))
 
-            cy = yield_lookup[(g.county, season)]
+            cy = yield_lookup[(g.county, g.state, season)]
             realized_yield = max(15.0, rng.normal(cy.mean_yield, cy.std_yield))
             bushels = planted * realized_yield * rng.uniform(0.9, 1.0)  # some grain never reaches a visible elevator
             n_elevators = int(rng.integers(1, 3))
@@ -195,17 +237,27 @@ def generate(
                 receipt_id = f"R{len(receipts) + 1:05d}"
                 receipts.append(
                     ElevatorReceipt(receipt_id, _name_variant(g.name, rng) if messy_names else g.name, g.county,
-                                    g.state, f"E-{g.county}-{e + 1}", season, CROP, float(round(bushels * share)))
+                                    g.state, f"E-{g.county}-{g.state}-{e + 1}", season, CROP, float(round(bushels * share)))
                 )
                 links.append(RecordLink(receipt_id, g.grower_id))
 
-            truth.append(GroundTruth(g.grower_id, season, ctype, planted, round(licensed, 1), hidden_units))
+            truth.append(GroundTruth(g.grower_id, season, ctype, planted, round(licensed, 1), hidden_units, other_acres))
+
+    for county, state, _, base in COUNTIES:  # non-customers: no record_links row, because they have no owner
+        sellers = [f"{FIRST_NAMES[rng.integers(len(FIRST_NAMES))]} {OTHER_LAST_NAMES[rng.integers(len(OTHER_LAST_NAMES))]}"
+                   for _ in range(OTHER_SELLERS_PER_COUNTY)]
+        for season in seasons:
+            for seller in sellers:
+                receipts.append(ElevatorReceipt(f"R{len(receipts) + 1:05d}", seller, county, state,
+                                                f"E-{county}-{state}-1", season, CROP,
+                                                float(round(rng.integers(20, 301) * 5 * base * rng.uniform(0.8, 1.1)))))
 
     return {
         "growers": _frame(growers, Grower),
         "dealers": _frame(dealers, Dealer),
         "varieties": _frame(varieties, Variety),
         "seed_purchases": _frame(purchases, SeedPurchase),
+        "seed_statements": _frame(statements, SeedStatement),
         "acreage_reports": _frame(reports, AcreageReport),
         "elevator_receipts": _frame(receipts, ElevatorReceipt),
         "county_yields": _frame(county_yields, CountyYield),

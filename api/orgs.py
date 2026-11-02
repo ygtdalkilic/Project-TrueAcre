@@ -21,6 +21,7 @@ class NewOrg(BaseModel):
 class NewInvite(BaseModel):
     email: str
     role: str = "analyst"
+    grower_id: str | None = None  # required for role 'grower': the grower record this person is
 
 
 def _check_name(name: str) -> str:
@@ -64,13 +65,27 @@ def audit_log(membership: models.Membership = Depends(require_admin), db: Sessio
 @router.get("/current/members")
 def list_members(membership: models.Membership = Depends(current_membership), db: Session = Depends(get_db)):
     members = db.scalars(select(models.Membership).where(models.Membership.org_id == membership.org_id)).all()
-    out = {"members": [{"user_id": m.user_id, "email": m.user.email, "name": m.user.name, "role": m.role}
-                       for m in members]}
+    out = {"members": [{"user_id": m.user_id, "email": m.user.email, "name": m.user.name, "role": m.role,
+                        "grower_id": m.grower_id} for m in members]}
     if membership.role == "admin":
         pending = db.scalars(select(models.Invite).where(models.Invite.org_id == membership.org_id,
                                                          models.Invite.accepted_at.is_(None))).all()
-        out["invites"] = [{"id": i.id, "email": i.email, "role": i.role} for i in pending]
+        out["invites"] = [{"id": i.id, "email": i.email, "role": i.role, "grower_id": i.grower_id} for i in pending]
     return out
+
+
+def _check_grower(db: Session, org: models.Organization, role: str, grower_id: str | None) -> str | None:
+    """A grower invite must name a grower in the company's uploaded growers table; staff invites must not."""
+    if role != "grower":
+        if grower_id:
+            raise HTTPException(status_code=400, detail="only grower invites take a grower_id")
+        return None
+    if not grower_id:
+        raise HTTPException(status_code=400, detail="a grower invite needs the grower_id it belongs to")
+    growers = pipeline.load_tables(db, org).get("growers")
+    if growers is None or grower_id not in set(growers["grower_id"]):
+        raise HTTPException(status_code=404, detail="no grower with that grower_id in this company's data")
+    return grower_id
 
 
 @router.post("/current/invites", status_code=201)
@@ -79,6 +94,7 @@ def invite(body: NewInvite, request: Request, membership: models.Membership = De
     if body.role not in models.ROLES:
         raise HTTPException(status_code=400, detail=f"role must be one of {list(models.ROLES)}")
     email = normalize_email(body.email)
+    grower_id = _check_grower(db, membership.organization, body.role, body.grower_id)
 
     existing_user = db.scalar(select(models.User).where(models.User.email == email))
     if existing_user and db.get(models.Membership, (existing_user.id, membership.org_id)):
@@ -87,18 +103,20 @@ def invite(body: NewInvite, request: Request, membership: models.Membership = De
     inv = db.scalar(select(models.Invite).where(models.Invite.org_id == membership.org_id,
                                                 models.Invite.email == email))
     if inv is None:
-        inv = models.Invite(org_id=membership.org_id, email=email, role=body.role, invited_by=membership.user_id)
+        inv = models.Invite(org_id=membership.org_id, email=email, role=body.role, grower_id=grower_id,
+                            invited_by=membership.user_id)
         db.add(inv)
     else:
-        inv.role, inv.accepted_at = body.role, None
+        inv.role, inv.grower_id, inv.accepted_at = body.role, grower_id, None
 
     if existing_user:  # they already have an account: no need to wait for their next sign-in
-        db.add(models.Membership(user_id=existing_user.id, org_id=membership.org_id, role=body.role))
+        db.add(models.Membership(user_id=existing_user.id, org_id=membership.org_id, role=body.role,
+                                 grower_id=grower_id))
         inv.accepted_at = datetime.now(timezone.utc)
     audit.record(db, "invite.create", request=request, user_id=membership.user_id, org_id=membership.org_id,
-                 email=email, role=body.role, joined=existing_user is not None)
+                 email=email, role=body.role, grower_id=grower_id, joined=existing_user is not None)
     db.commit()
-    return {"email": email, "role": body.role, "joined": existing_user is not None}
+    return {"email": email, "role": body.role, "grower_id": grower_id, "joined": existing_user is not None}
 
 
 @router.delete("/current/invites/{invite_id}", status_code=204)

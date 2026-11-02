@@ -32,9 +32,9 @@ class Decision(BaseModel):
     note: str | None = None
 
 
-def _candidates(name: str, county: str, growers, current: str | None) -> list[dict]:
+def _candidates(name: str, county: str, state: str, growers, current: str | None) -> list[dict]:
     norm = normalize_name(name)
-    local = growers[growers["county"] == county]
+    local = growers[(growers["county"] == county) & (growers["state"] == state)]
     ranked = sorted(
         ({"grower_id": g.grower_id, "name": g.name,
           "similarity": round(difflib.SequenceMatcher(None, norm, normalize_name(g.name)).ratio(), 2)}
@@ -58,7 +58,7 @@ def review(membership: models.Membership = Depends(current_membership), db: Sess
         automatic = resolved[table].set_index(id_col)
         for rec in tables[table].itertuples():
             record_id = getattr(rec, id_col)
-            name, county = getattr(rec, name_col), rec.county
+            name, county, state = getattr(rec, name_col), rec.county, rec.state
             if record_id in decisions:
                 d = decisions[record_id]
                 status, grower_id, reason = "analyst", d.grower_id, d.note
@@ -69,10 +69,10 @@ def review(membership: models.Membership = Depends(current_membership), db: Sess
             else:
                 continue  # confidently linked by farm number or exact name: nothing to review
             items.append({
-                "source": table, "record_id": record_id, "name": name, "county": county,
+                "source": table, "record_id": record_id, "name": name, "county": county, "state": state,
                 "season": int(rec.season), "amount": float(getattr(rec, AMOUNT_COLUMN[table])),
                 "status": status, "grower_id": grower_id, "reason": reason,
-                "candidates": _candidates(name, county, growers, grower_id),
+                "candidates": _candidates(name, county, state, growers, grower_id),
             })
     order = {"unmatched": 0, "check": 1, "analyst": 2}
     return sorted(items, key=lambda i: (order[i["status"]], i["source"], i["record_id"]))

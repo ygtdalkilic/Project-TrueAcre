@@ -10,10 +10,11 @@ from engine.score import CONSISTENT, INSUFFICIENT, REVIEW, score
 
 def _row(**overrides):
     """One reconciled grower-season. Defaults: 100 licensed acres, 150 declared, 7500 bu delivered
-    against a 6000 bu ceiling, all sources present, full dealer coverage."""
+    against a 6000 bu ceiling, all sources present, full dealer coverage, a seed statement on file."""
     base = dict(
         grower_id="G", season=2024, licensed_acres=100.0, declared_acres=150.0, delivered_bushels=7500.0,
         max_bushels=6000.0, has_purchases=True, has_acreage=True, has_deliveries=True, dealer_coverage=1.0,
+        has_statement=True,
     )
     base.update(overrides)
     base["acre_gap"] = base["declared_acres"] - base["licensed_acres"]
@@ -33,6 +34,14 @@ def test_large_gap_with_partial_coverage_is_insufficient():
     r = _row(dealer_coverage=2 / 3)
     assert r.fair_play_score == 67
     assert r.label == INSUFFICIENT
+
+
+def test_large_gap_without_seed_statement_is_insufficient():
+    """Without the grower's count of other-seed acres, the gap may be another company's seed."""
+    r = _row(has_statement=False)
+    assert r.fair_play_score == 67
+    assert r.label == INSUFFICIENT
+    assert _row(has_statement=False, declared_acres=101.0, delivered_bushels=5000.0).label == CONSISTENT
 
 
 def test_small_gap_is_consistent():
@@ -77,6 +86,11 @@ def test_labels_match_synthetic_ground_truth(seed):
     out = score(reconcile(tables)).merge(truth, on=["grower_id", "season"])
     assert len(out) == len(truth)
 
-    expected = {"clean": CONSISTENT, "ghost_seed": REVIEW, "missing_dealer": INSUFFICIENT}
-    mismatches = out[out["label"] != out["case_type"].map(expected)]
-    assert mismatches.empty, mismatches[["grower_id", "season", "case_type", "label", "gap_fraction", "coverage"]]
+    with_statement = {"clean": CONSISTENT, "ghost_seed": REVIEW, "split_brand": CONSISTENT,
+                      "missing_dealer": INSUFFICIENT, "neighbor_dealer": INSUFFICIENT}
+    # no statement: a gap cannot be told apart from another company's seed, whatever its cause
+    without_statement = {**with_statement, "ghost_seed": INSUFFICIENT, "split_brand": INSUFFICIENT}
+    expected = np.where(out["has_statement"], out["case_type"].map(with_statement), out["case_type"].map(without_statement))
+    mismatches = out[out["label"] != expected]
+    assert mismatches.empty, mismatches[["grower_id", "season", "case_type", "label", "gap_fraction", "coverage", "has_statement"]]
+    assert (out["label"] == REVIEW).any()

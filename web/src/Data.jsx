@@ -6,6 +6,7 @@ const DESCRIPTIONS = {
   dealers: 'Dealers in each county and whether they report their receipts into the system.',
   varieties: 'Seed varieties with seeds per unit and the target seeding rate.',
   seed_purchases: 'Dealer receipts: units of each variety bought by each grower per season.',
+  seed_statements: "Optional. Each grower's statement of acres planted with seed not bought from you (another company's or conventional); 0 means all of it was yours. Without a statement, a gap is never marked review recommended.",
   acreage_reports: 'Government acreage filings, with the operator name as written on the form.',
   elevator_receipts: 'Grain elevator scale tickets, with the seller name as written on the ticket.',
   county_yields: 'County average yield and standard deviation per crop and season.',
@@ -36,17 +37,18 @@ export default function Data({ config }) {
   const remove = (table) => run(table, api.deleteTable(table).then(() => `${table}: removed.`))
   const usda = () => run('county_yields', api.usdaImport().then((r) =>
     `county_yields: ${r.rows} rows from USDA.${r.notes.length ? ` Skipped: ${r.notes.join('; ')}` : ''}`))
-  const demo = () => run('demo', api.loadDemo().then(() => 'Sample dataset loaded into all seven tables.'))
+  const demo = () => run('demo', api.loadDemo().then(() => 'Sample dataset loaded into every table.'))
 
   if (!status) return <p className="muted">Loading…</p>
-  const missing = status.filter((s) => s.rows === null).length
+  const required = status.filter((s) => !s.optional)
+  const missing = required.filter((s) => s.rows === null).length
 
   return (
     <div>
       <p>
-        Upload the seven tables as CSV. Download a template for the exact column names. Scores are
+        Upload the tables as CSV. Download a template for the exact column names. Scores are
         recomputed after every upload.{' '}
-        {missing > 0 ? <b>{missing} of 7 tables still missing.</b> : <b>All tables present.</b>}
+        {missing > 0 ? <b>{missing} of {required.length} required tables still missing.</b> : <b>All required tables present.</b>}
       </p>
       <p>
         <button className="primary" onClick={demo} disabled={busy !== null}>Load sample dataset</button>{' '}
@@ -62,7 +64,7 @@ export default function Data({ config }) {
             <p className="muted">{DESCRIPTIONS[s.table]}</p>
             <p className="muted small">columns: {s.columns.join(', ')}</p>
             <p>
-              {s.rows === null ? <span className="label label-unknown">not uploaded</span> : (
+              {s.rows === null ? <span className="label label-unknown">{s.optional ? 'optional · not uploaded' : 'not uploaded'}</span> : (
                 <span className="label label-ok">{s.rows.toLocaleString()} rows</span>
               )}
               {s.uploaded_at && <span className="muted"> · {new Date(s.uploaded_at).toLocaleString()}</span>}

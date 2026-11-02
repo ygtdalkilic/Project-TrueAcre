@@ -27,7 +27,7 @@ export default function Scores({ config, onNeedData }) {
   if (needData) {
     return (
       <p>
-        No scores yet: this company has not uploaded all seven tables.{' '}
+        No scores yet: this company has not uploaded all required tables.{' '}
         <button className="link" onClick={onNeedData}>Go to Data</button>
       </p>
     )
@@ -35,12 +35,13 @@ export default function Scores({ config, onNeedData }) {
   if (!scores) return <p className="muted">Loading…</p>
 
   const seasons = [...new Set(scores.map((s) => s.season))].sort()
-  const counties = [...new Set(scores.map((s) => s.county))].sort()
+  const place = (s) => `${s.county}, ${s.state}` // county names repeat across states
+  const counties = [...new Set(scores.map(place))].sort()
   const crops = [...new Set(scores.map((s) => s.crop))].sort()
   const rows = scores.filter(
     (s) =>
       (!season || s.season === Number(season)) &&
-      (!county || s.county === county) &&
+      (!county || place(s) === county) &&
       (!label || s.label === label) &&
       (!crop || s.crop === crop),
   )
@@ -122,7 +123,7 @@ export default function Scores({ config, onNeedData }) {
             <tbody>
               {unmatched.map((u) => (
                 <tr key={u.record_id}>
-                  <td>{u.source}</td><td>{u.record_id}</td><td>{u.name}</td><td>{u.county}</td><td>{u.reason}</td>
+                  <td>{u.source}</td><td>{u.record_id}</td><td>{u.name}</td><td>{u.county}, {u.state}</td><td>{u.reason}</td>
                 </tr>
               ))}
             </tbody>

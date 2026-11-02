@@ -4,9 +4,10 @@ Seed purchases already carry grower_id because they are the company's own custom
 Acreage reports and elevator receipts only carry a name, a county, and (acreage only) a farm number.
 
 Rules, tried in order, each accepted only when exactly ONE registered grower qualifies:
-  1. farm number equals a registered farm number
-  2. normalized name and county equal a registered grower
-  3. normalized name is similar (ratio >= FUZZY_MIN) to a grower in the same county
+  1. farm number equals a registered farm number in the same county and state (FSA numbers farms
+     per county office, so the same number recurs in other counties)
+  2. normalized name, county, and state equal a registered grower
+  3. normalized name is similar (ratio >= FUZZY_MIN) to a grower in the same county and state
 Anything else stays unmatched and is excluded. A wrong match is worse than a missed one.
 """
 import difflib
@@ -41,22 +42,23 @@ def _unique(candidates, method):
 def _resolve(records: pd.DataFrame, name_col: str, farm_col: str | None, growers: pd.DataFrame):
     """Return (grower_id, match_method) lists aligned with the rows of `records`."""
     reg = growers.assign(norm=growers["name"].map(normalize_name))
-    by_farm = reg.dropna(subset=["farm_number"]).groupby("farm_number")["grower_id"].agg(list)
-    by_key = reg.groupby(["norm", "county"])["grower_id"].agg(list)
-    by_county = {county: group for county, group in reg.groupby("county")}
+    by_farm = reg.dropna(subset=["farm_number"]).groupby(["farm_number", "county", "state"])["grower_id"].agg(list)
+    by_key = reg.groupby(["norm", "county", "state"])["grower_id"].agg(list)
+    by_county = {place: group for place, group in reg.groupby(["county", "state"])}  # county names repeat across states
 
     ids, methods = [], []
     for _, rec in records.iterrows():
         gid, method = None, "no match"
+        place = (rec["county"], rec["state"])
         farm = rec[farm_col] if farm_col else None
-        if isinstance(farm, str) and farm in by_farm.index:
-            gid, method = _unique(by_farm[farm], "farm number")
+        if isinstance(farm, str) and (farm, *place) in by_farm.index:
+            gid, method = _unique(by_farm[(farm, *place)], "farm number")
         if gid is None:
             norm = normalize_name(rec[name_col])
-            if (norm, rec["county"]) in by_key.index:
-                gid, method = _unique(by_key[(norm, rec["county"])], "exact name")
-            elif rec["county"] in by_county:
-                local = by_county[rec["county"]]
+            if (norm, *place) in by_key.index:
+                gid, method = _unique(by_key[(norm, *place)], "exact name")
+            elif place in by_county:
+                local = by_county[place]
                 close = [
                     g for g, n in zip(local["grower_id"], local["norm"])
                     if difflib.SequenceMatcher(None, norm, n).ratio() >= FUZZY_MIN
@@ -79,7 +81,7 @@ def resolve(tables: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
         miss = df[df["grower_id"].isna()]
         unmatched.append(pd.DataFrame({
             "source": table, "record_id": miss[id_col], "name": miss[name_col],
-            "county": miss["county"], "reason": miss["match_method"],
+            "county": miss["county"], "state": miss["state"], "reason": miss["match_method"],
         }))
         out[table] = df[df["grower_id"].notna()].reset_index(drop=True)
     out["unmatched"] = pd.concat(unmatched, ignore_index=True)

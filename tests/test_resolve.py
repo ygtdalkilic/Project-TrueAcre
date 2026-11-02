@@ -69,6 +69,40 @@ def test_rules_and_refusals(tiny):
     assert len(out["acreage_reports"]) + len(out["elevator_receipts"]) + len(unmatched) == 7 + 3
 
 
+def test_same_county_name_in_another_state_is_not_a_match():
+    """Boone County exists in Iowa and Illinois. A James Miller in Boone, IL is not the registered one in Boone, IA."""
+    growers = pd.DataFrame({"grower_id": ["G1"], "name": ["James Miller"], "county": ["Boone"],
+                            "state": ["IA"], "farm_number": [None]})
+    acreage = pd.DataFrame({
+        "report_id": ["A1", "A2"], "operator_name": ["James Miller", "Jame Miller"], "farm_number": ["F9", "F9"],
+        "county": ["Boone", "Boone"], "state": ["IL", "IL"], "season": [2024] * 2, "crop": ["soybeans"] * 2,
+        "acres": [100.0] * 2,
+    })
+    receipts = pd.DataFrame({
+        "receipt_id": ["R1"], "seller_name": ["James Miller"], "county": ["Boone"], "state": ["IA"],
+        "elevator_id": ["E1"], "season": [2024], "crop": ["soybeans"], "bushels": [1000.0],
+    })
+    out = resolve({"growers": growers, "acreage_reports": acreage, "elevator_receipts": receipts})
+    assert out["acreage_reports"].empty  # neither the exact nor the fuzzy name may cross the state line
+    assert out["elevator_receipts"]["grower_id"].tolist() == ["G1"]
+    assert set(out["unmatched"]["record_id"]) == {"A1", "A2"}
+
+
+def test_farm_number_only_matches_within_its_county():
+    """FSA assigns farm numbers per county office, so farm 7 in Story, IA and farm 7 in Boone, IA are different farms."""
+    growers = pd.DataFrame({"grower_id": ["G1"], "name": ["James Miller"], "county": ["Story"],
+                            "state": ["IA"], "farm_number": ["7"]})
+    acreage = pd.DataFrame({
+        "report_id": ["A1", "A2"], "operator_name": ["Susan Becker", "Susan Becker"], "farm_number": ["7", "7"],
+        "county": ["Boone", "Story"], "state": ["IA", "IA"], "season": [2024] * 2, "crop": ["soybeans"] * 2,
+        "acres": [100.0] * 2,
+    })
+    receipts = pd.DataFrame(columns=["receipt_id", "seller_name", "county", "state", "elevator_id", "season", "crop", "bushels"])
+    out = resolve({"growers": growers, "acreage_reports": acreage, "elevator_receipts": receipts})
+    assert out["acreage_reports"]["report_id"].tolist() == ["A2"]  # same county: the farm number decides
+    assert out["unmatched"]["record_id"].tolist() == ["A1"]  # another county's farm 7 is someone else
+
+
 def _links(tables):
     """Resolver output joined to the ground-truth owner of every record."""
     links = tables["record_links"]
@@ -88,7 +122,10 @@ def test_messy_names_never_produce_a_wrong_link(seed):
     matched = joined.dropna(subset=["resolved"])
     assert (matched["resolved"] == matched["grower_id"]).all()  # precision: zero wrong links
     assert len(matched) / len(joined) >= 0.9  # recall stays high
-    assert len(out["unmatched"]) == len(joined) - len(matched)
+    # tickets from non-customers have no owner: every one of them must stay unmatched
+    ownerless = set(raw["elevator_receipts"]["receipt_id"]) - set(raw["record_links"]["record_id"])
+    assert ownerless and ownerless <= set(out["unmatched"]["record_id"])
+    assert len(out["unmatched"]) == len(joined) - len(matched) + len(ownerless)
 
 
 def test_clean_names_all_resolve():
@@ -107,9 +144,9 @@ def test_labels_on_messy_data(seed):
 
     # zero false positives, no matter what the resolver missed
     assert (scored.loc[scored.case_type == "clean", "label"] == CONSISTENT).all()
-    assert (scored.loc[scored.case_type == "missing_dealer", "label"] != REVIEW).all()
+    assert (scored.loc[scored.case_type.isin(["split_brand", "missing_dealer", "neighbor_dealer"]), "label"] != REVIEW).all()
 
-    # every ghost case whose acreage report was linked is flagged
-    ghost = scored[(scored.case_type == "ghost_seed") & scored.has_acreage]
+    # every ghost case whose acreage report was linked, and whose grower filed a seed statement, is flagged
+    ghost = scored[(scored.case_type == "ghost_seed") & scored.has_acreage & scored.has_statement]
     assert len(ghost) > 0
     assert (ghost["label"] == REVIEW).all()

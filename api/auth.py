@@ -94,12 +94,26 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> models.User
     return user
 
 
-def current_membership(request: Request, db: Session = Depends(get_db),
-                       user: models.User = Depends(current_user)) -> models.Membership:
+def any_membership(request: Request, db: Session = Depends(get_db),
+                   user: models.User = Depends(current_user)) -> models.Membership:
     org_id = request.state.session.get("org")
     membership = db.get(models.Membership, (user.id, org_id)) if org_id else None
     if membership is None:
         raise HTTPException(status_code=403, detail="choose a company first")
+    return membership
+
+
+def current_membership(membership: models.Membership = Depends(any_membership)) -> models.Membership:
+    """Company staff only. Every company-wide route depends on this, so a grower is refused by default."""
+    if membership.role not in models.STAFF_ROLES:
+        raise HTTPException(status_code=403, detail="company staff only")
+    return membership
+
+
+def current_grower(membership: models.Membership = Depends(any_membership)) -> models.Membership:
+    """A grower member, always linked to exactly one grower record."""
+    if membership.role != "grower" or not membership.grower_id:
+        raise HTTPException(status_code=403, detail="growers only")
     return membership
 
 
@@ -130,7 +144,7 @@ def _sign_in(db: Session, response: Response, request: Request, method: str, *, 
     for invite in db.scalars(select(models.Invite).where(models.Invite.email == email,
                                                          models.Invite.accepted_at.is_(None))):
         if db.get(models.Membership, (user.id, invite.org_id)) is None:
-            db.add(models.Membership(user_id=user.id, org_id=invite.org_id, role=invite.role))
+            db.add(models.Membership(user_id=user.id, org_id=invite.org_id, role=invite.role, grower_id=invite.grower_id))
             audit.record(db, "invite.accept", request=request, user_id=user.id, org_id=invite.org_id, email=email)
         invite.accepted_at = datetime.now(timezone.utc)
     audit.record(db, "auth.sign_in", request=request, user_id=user.id, method=method, email=email)
@@ -144,7 +158,7 @@ def _sign_in(db: Session, response: Response, request: Request, method: str, *, 
 
 def me_payload(db: Session, user: models.User, org_id: int | None) -> dict:
     memberships = db.scalars(select(models.Membership).where(models.Membership.user_id == user.id)).all()
-    orgs = [{"id": m.org_id, "name": m.organization.name, "role": m.role} for m in memberships]
+    orgs = [{"id": m.org_id, "name": m.organization.name, "role": m.role, "grower_id": m.grower_id} for m in memberships]
     current = next((o for o in orgs if o["id"] == org_id), None)
     return {
         "user": {"id": user.id, "email": user.email, "name": user.name, "picture": user.picture},
@@ -223,6 +237,8 @@ def delete_account(request: Request, response: Response, user: models.User = Dep
     db.execute(update(models.Invite).where(models.Invite.invited_by == user.id).values(invited_by=None))
     db.execute(update(models.Dataset).where(models.Dataset.uploaded_by == user.id).values(uploaded_by=None))
     db.execute(update(models.LinkDecision).where(models.LinkDecision.decided_by == user.id).values(decided_by=None))
+    db.execute(update(models.GrowerStatement).where(models.GrowerStatement.submitted_by == user.id)
+               .values(submitted_by=None))
     audit.record(db, "account.delete", request=request, user_id=user.id, email=user.email)
     db.delete(user)
     db.commit()
