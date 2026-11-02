@@ -1,12 +1,17 @@
 import pandas as pd
 import pytest
 
-from data.generate import COUNTIES, OTHER_SELLERS_PER_COUNTY, generate, write_csvs
+from data.generate import COUNTIES, DEFAULT_SEASONS, OTHER_SELLERS_PER_COUNTY, generate, write_csvs
+
+N_GROWERS = 120
+CASES = {"ghost_seed": 6, "split_brand": 6, "missing_dealer": 6, "neighbor_dealer": 4}  # growers per designed case
+CASE_PARAM = {"ghost_seed": "n_ghost", "split_brand": "n_split_brand", "missing_dealer": "n_missing_dealer",
+              "neighbor_dealer": "n_neighbor_dealer"}  # generate() argument for each case
 
 
 @pytest.fixture(scope="module")
 def tables():
-    return generate(n_growers=120, n_ghost=6, n_missing_dealer=6, n_split_brand=6, n_neighbor_dealer=4, seed=7)
+    return generate(n_growers=N_GROWERS, seed=7, **{CASE_PARAM[case]: n for case, n in CASES.items()})
 
 
 def test_same_seed_gives_identical_tables():
@@ -18,11 +23,11 @@ def test_same_seed_gives_identical_tables():
 
 def test_row_counts(tables):
     truth = tables["ground_truth"]
-    assert len(tables["growers"]) == 120
-    assert len(truth) == 120 * 2
-    assert len(tables["acreage_reports"]) == 120 * 2
+    assert len(tables["growers"]) == N_GROWERS
+    assert len(truth) == N_GROWERS * len(DEFAULT_SEASONS)
+    assert len(tables["acreage_reports"]) == N_GROWERS * len(DEFAULT_SEASONS)
     per_grower = truth.groupby("grower_id")["case_type"].last().value_counts().to_dict()  # ghosts start clean
-    assert per_grower == {"clean": 98, "ghost_seed": 6, "split_brand": 6, "missing_dealer": 6, "neighbor_dealer": 4}
+    assert per_grower == {**CASES, "clean": N_GROWERS - sum(CASES.values())}
 
 
 def test_every_grower_season_has_acreage_and_deliveries(tables):

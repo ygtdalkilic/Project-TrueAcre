@@ -30,7 +30,7 @@ PROVIDERS = {  # provider -> (OpenAI-compatible base URL, environment variable h
 }
 MAX_TOKENS = 2048  # explanations are short; the headroom is for models that count thinking tokens here
 TEMPERATURE = 0.2  # restating given numbers should be steady, not creative
-TIMEOUT = 120.0  # seconds; a local model on a laptop can take a while
+TIMEOUT = float(os.environ.get("TRUEACRE_LLM_TIMEOUT", "120"))  # seconds; a local model on a laptop can take a while
 
 SYSTEM = """You write for a compliance analyst at a seed company. You receive JSON evidence about one
 grower and one season: seed purchases, the acreage report, elevator receipts, the county yield

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from api.db import Base
 
+EMAIL_LENGTH = 320  # longest email address stored (users and invites); sign-in refuses longer ones
 STAFF_ROLES = ("admin", "analyst")
 ROLES = (*STAFF_ROLES, "grower")
 
@@ -26,7 +27,7 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     google_sub: Mapped[str | None] = mapped_column(String(64), unique=True)
-    email: Mapped[str] = mapped_column(String(320), unique=True)
+    email: Mapped[str] = mapped_column(String(EMAIL_LENGTH), unique=True)
     name: Mapped[str] = mapped_column(String(200))
     picture: Mapped[str | None] = mapped_column(String(1000))
     session_version: Mapped[int] = mapped_column(default=1)  # bump it to sign the user out everywhere
@@ -65,7 +66,7 @@ class Invite(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     org_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
-    email: Mapped[str] = mapped_column(String(320))
+    email: Mapped[str] = mapped_column(String(EMAIL_LENGTH))
     role: Mapped[str] = mapped_column(String(16))
     grower_id: Mapped[str | None] = mapped_column(String(40))  # set for 'grower' invites
     invited_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))  # null once that account is deleted

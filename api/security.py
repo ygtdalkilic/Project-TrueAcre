@@ -21,6 +21,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 ENV = os.environ.get("TRUEACRE_ENV", "development")
 IS_PRODUCTION = ENV == "production"
 
+HSTS_MAX_AGE = 365 * 24 * 3600  # seconds browsers remember to use HTTPS only (one year, the common minimum)
 GSI = "https://accounts.google.com"  # Google Identity Services: script, button iframe, and styles
 CSP = "; ".join([
     "default-src 'self'",
@@ -47,7 +48,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         if IS_PRODUCTION:
-            headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            headers["Strict-Transport-Security"] = f"max-age={HSTS_MAX_AGE}; includeSubDomains"
         return response
 
 

@@ -88,6 +88,16 @@ Settings, all read from the environment (put them in `.env`):
 | `TRUEACRE_LLM_API_KEY` | Overrides the provider's own key variable (`GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`). Local servers need none |
 | `NASS_API_KEY` | Free key from quickstats.nass.usda.gov/api. Enables "fill from USDA" for county yields. Unset means the button is hidden |
 | `DATA_ENCRYPTION_KEY` | 32 random bytes, urlsafe-base64 (`python -m api.crypto` prints one). Encrypts uploaded tables at rest; required in production |
+| `TRUEACRE_LOGIN_LIMIT` | Sign-in attempts per IP per minute. Default `10` |
+| `TRUEACRE_UPLOAD_LIMIT` | CSV uploads per user per minute. Default `30` |
+| `TRUEACRE_MAX_UPLOAD_MB` | Largest CSV accepted, in MB. Default `20` |
+| `TRUEACRE_MAX_UPLOAD_ROWS` | Most rows accepted per CSV. Default `500000` |
+| `TRUEACRE_EXPLAIN_LIMIT` | Explanation requests per company per minute. Default `20` |
+| `TRUEACRE_LLM_TIMEOUT` | Seconds to wait for the explanation model. Default `120` |
+| `TRUEACRE_USDA_LIMIT` | USDA imports per company per 10 minutes. Default `5` |
+| `TRUEACRE_USDA_TIMEOUT` | Seconds per USDA Quick Stats request. Default `60` |
+
+Scoring thresholds are not settings. They are fixed in the code ([engine/score.py](engine/score.py), [engine/reconcile.py](engine/reconcile.py)) so that [docs/VALIDATION.md](docs/VALIDATION.md) always describes exactly what runs.
 
 # Plain-English explanations (optional)
 
@@ -107,7 +117,7 @@ What is in place, and what it does not cover.
 - **Authorization.** Every data endpoint is scoped to the company in the session. Admin-only actions check the role. A test proves one company cannot read another's data. Grower accounts are refused by every company route by default, and a test walks every route the app serves to prove it.
 - **Cross-site requests.** State-changing API calls must come from the same origin (Origin and Sec-Fetch-Site are checked) on top of the cookie's SameSite protection.
 - **Headers.** A Content Security Policy allows only the app's own files plus Google's sign-in button, and frames are refused. HSTS is on in production.
-- **Input.** Uploads are capped at 20 MB and 500,000 rows, must be UTF-8 CSV, and are validated column by column with typed errors. All database access is parameterized through SQLAlchemy.
+- **Input.** Uploads are capped at 20 MB and 500,000 rows by default (configurable, see the settings table), must be UTF-8 CSV, and are validated column by column with typed errors. All database access is parameterized through SQLAlchemy.
 - **Encryption at rest.** Every uploaded table is encrypted with AES-256-GCM before it is stored, using a key held in Secret Manager and never in the database. A leaked database alone reveals no grower data, and tampering is detected on read.
 - **Privacy rights.** Members can remove any table, admins can delete a company with everything it owns, and any user can delete their account. See the Privacy Policy and Terms of Use served at `/privacy.html` and `/terms.html`.
 - **Audit log.** Who uploaded, ruled, invited, removed, viewed evidence, or filed a seed statement, when, and from where; readable by admins, kept after deletions.

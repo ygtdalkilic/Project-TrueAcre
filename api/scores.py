@@ -1,5 +1,7 @@
 """Scores, per-grower evidence, unmatched records, and optional explanations, scoped to the
 signed-in user's company. Every score is per grower, season, and crop."""
+import os
+
 import httpx
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -18,7 +20,9 @@ router = APIRouter(prefix="/api", tags=["scores"])
 
 # Explanations call a chat model, cloud or local; off unless a provider is configured. The dashboard hides the button.
 EXPLAIN_CLIENT = LLMClient.from_env()
-EXPLAIN_LIMIT = RateLimiter(limit=20, window_seconds=60)  # per company; these calls can cost money
+UPSTREAM_ERROR_CHARS = 300  # how much of a provider's error body to pass on to the analyst
+# per company per minute; these calls can cost money
+EXPLAIN_LIMIT = RateLimiter(limit=int(os.environ.get("TRUEACRE_EXPLAIN_LIMIT", "20")), window_seconds=60)
 
 SCORE_COLUMNS = [
     "grower_id", "name", "county", "state", "season", "crop", "fair_play_score", "label",
@@ -118,7 +122,7 @@ def grower_explanation(grower_id: str, season: int, crop: str, request: Request,
     except httpx.HTTPStatusError as e:
         raise HTTPException(
             status_code=502,
-            detail=f"{EXPLAIN_CLIENT.provider} returned {e.response.status_code}: {e.response.text[:300]}",
+            detail=f"{EXPLAIN_CLIENT.provider} returned {e.response.status_code}: {e.response.text[:UPSTREAM_ERROR_CHARS]}",
         )
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"could not reach {EXPLAIN_CLIENT.provider} at {EXPLAIN_CLIENT.base_url}: {e}")

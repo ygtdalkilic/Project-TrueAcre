@@ -40,9 +40,8 @@ if not SESSION_SECRET:
     raise RuntimeError("SESSION_SECRET must be set in production")
 
 SESSION_COOKIE = "trueacre_session"
-SESSION_MAX_AGE = 7 * 24 * 3600  # seconds
-LOGIN_LIMIT = RateLimiter(limit=10, window_seconds=60)  # sign-in attempts per IP
-MAX_EMAIL = 320  # the users.email column length
+SESSION_MAX_AGE = 7 * 24 * 3600  # seconds; static on purpose: the privacy page promises "up to seven days"
+LOGIN_LIMIT = RateLimiter(limit=int(os.environ.get("TRUEACRE_LOGIN_LIMIT", "10")), window_seconds=60)  # per IP per minute
 # Domain labels exclude the dot, so every character has exactly one place in the pattern and a failing
 # match is linear. The older '[^@\s]+\.[^@\s]+' let both groups claim dots and backtracked quadratically.
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+$")
@@ -53,7 +52,7 @@ _serializer = URLSafeTimedSerializer(SESSION_SECRET, salt="session")
 
 def normalize_email(email: str) -> str:
     email = email.strip().lower()
-    if len(email) > MAX_EMAIL or not EMAIL_RE.match(email):
+    if len(email) > models.EMAIL_LENGTH or not EMAIL_RE.match(email):
         raise HTTPException(status_code=400, detail="that is not a valid email address")
     return email
 

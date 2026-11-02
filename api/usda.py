@@ -31,14 +31,15 @@ NASS_API_URL = os.environ.get("NASS_API_URL", "https://quickstats.nass.usda.gov/
 NASS_API_KEY = os.environ.get("NASS_API_KEY")
 HISTORY_YEARS = 10
 MIN_HISTORY = 3  # fewer published years than this and no standard deviation is trustworthy
-TIMEOUT = 60.0
+TIMEOUT = float(os.environ.get("TRUEACRE_USDA_TIMEOUT", "60"))  # seconds per Quick Stats request
 COMMODITIES = {  # crop name as used in the varieties table -> Quick Stats filters
     "soybeans": {"commodity_desc": "SOYBEANS"},
     "corn": {"commodity_desc": "CORN", "util_practice_desc": "GRAIN"},
     "wheat": {"commodity_desc": "WHEAT"},
     "cotton": {"commodity_desc": "COTTON"},
 }
-IMPORT_LIMIT = RateLimiter(limit=5, window_seconds=600)  # per company; each import is many upstream calls
+# per company per 10 minutes; each import is many upstream calls
+IMPORT_LIMIT = RateLimiter(limit=int(os.environ.get("TRUEACRE_USDA_LIMIT", "5")), window_seconds=600)
 TRANSPORT: httpx.BaseTransport | None = None  # tests stand in a fake NASS here
 
 
