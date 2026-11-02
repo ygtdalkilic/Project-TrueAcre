@@ -5,7 +5,7 @@ pytest==9.1.1
 httpx==0.28.1
 sqlalchemy==2.0.52
 psycopg[binary]==3.3.5
-google-auth==2.58.0
+google-auth==2.62.0
 python-multipart==0.0.32
 itsdangerous==2.2.0
 requests==2.34.2
