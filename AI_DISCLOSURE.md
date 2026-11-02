@@ -1,8 +1,8 @@
 # Authorship and AI disclosure
 
-**TrueAcre is the work of Yigit Dalkilic, its sole author and owner.** The idea, the problem it sets out to solve, and the decisions that shape it are his. Much of the implementation was written with an AI coding assistant, and this page says plainly who did what.
+**TrueAcre is the work of Yigit Dalkilic, its author and owner.** It was built with AI-assisted development, and this page describes how.
 
-## Yigit Dalkilic: the idea and the direction
+## Yigit Dalkilic
 
 - **The concept.** Detecting unlicensed replanting of patented seed by reconciling three records that already exist (dealer seed receipts, government acreage reports, grain elevator receipts) into a per-grower Fair-Play Score, as a fairer alternative to tip lines and field audits.
 - **The design principles** every part of the system follows:
@@ -12,13 +12,12 @@
   - synthetic data with known ground truth comes first, because real grower data is private;
   - a wrong record match is worse than a missed one;
   - AI stays off the scoring path and may only explain.
-- **The decisions.** What to build and in what order, which proposals to accept or reject, the product and security posture, the stack, the deployment, the licensing, and when work is ready to ship. No change enters the project without his explicit approval.
+- **The production system.** Yigit set up and runs TrueAcre's server-side infrastructure on Google Cloud: Cloud Run hosting, the Neon Postgres database, Secret Manager for every key, Google sign-in, and the Google Gemini configuration behind the optional explanations.
+- **The decisions.** What to build and in what order, which suggestions to accept or reject, the product and security posture, the stack, the deployment, the licensing, and when work is ready to ship. No change enters the project without his approval.
 
-## AI assistance: the implementation, under that direction
+## AI assistance
 
-Most of the code, tests, and documentation were written by Anthropic's Claude, used through Claude Code, working under Yigit's direction and approval. That includes implementing the engine, API, dashboard, and test suite; researching facts the engine depends on (for example that FSA farm numbers are unique only within a county, and the Census Bureau's county adjacency data); finding bugs by reproducing them in synthetic data before fixing them; and drafting documentation.
-
-Claude also proposed fixes and features, such as the seed-statement approach to other brands' seed, dealer coverage across county lines, "what would clear this", the replant signature, the validation report, and the grower self-check page. Yigit decided which of them to build and how.
+Development used Anthropic's Claude, through Claude Code, as a coding assistant working under Yigit's direction: writing and revising code, tests, and documentation; researching technical facts the engine depends on (for example that FSA farm numbers are unique only within a county, and the Census Bureau's county adjacency data); and reproducing bugs in synthetic data before fixing them. Its suggestions were accepted or rejected by Yigit.
 
 ## AI inside the product
 

@@ -4,6 +4,10 @@
 
 Report it privately through GitHub: [open a private vulnerability report](https://github.com/ygtdalkilic/Project-TrueAcre/security/advisories/new) (the repository's Security tab, "Report a vulnerability"). Only the maintainer sees it. Please do not open a public issue. You will get an acknowledgement within a few days. Give reasonable time for a fix before disclosing publicly.
 
+## Supported versions
+
+Only the current `main` branch and the service deployed from it receive security fixes. There are no versioned releases to backport to.
+
 ## What is in place
 
 - Sign-in only through Google; ID tokens verified server-side. No passwords are stored anywhere.
@@ -14,8 +18,10 @@ Report it privately through GitHub: [open a private vulnerability report](https:
 - Content Security Policy, HSTS, frame denial, same-origin enforcement on state-changing requests, rate limits, and upload size limits.
 - The container runs as a non-root user, holds no secrets, and disables development sign-in and API docs in production.
 - An audit log records uploads, link rulings, invites, membership changes, evidence views, and grower statements. Admins can read it, and it is kept after deletions.
-- Every push and a weekly schedule run `pip-audit` and `npm audit` against pinned dependencies; Dependabot opens update pull requests.
-- `main` is protected by a repository ruleset: no force pushes, no deletion, and changes only through pull requests that pass every CI check.
+- Every push, every pull request, and a weekly schedule run `pip-audit` and `npm audit` against pinned dependencies, and a known vulnerability fails the build.
+- GitHub Dependabot alerts are on, and Dependabot opens a pull request with the patched version as soon as an advisory affects a dependency. It also opens routine version-update pull requests.
+- GitHub secret scanning is on with push protection, so a commit containing a recognizable key or token is refused before it reaches the repository.
+- `main` is protected by a repository ruleset: no force pushes, no deletion, and changes only through pull requests that pass every CI check, including the dependency audit.
 
 ## What is not in place
 

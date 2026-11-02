@@ -113,7 +113,8 @@ What is in place, and what it does not cover.
 - **Audit log.** Who uploaded, ruled, invited, removed, viewed evidence, or filed a seed statement, when, and from where; readable by admins, kept after deletions.
 - **Abuse.** Sign-in attempts, uploads, USDA imports, and paid explanation calls are rate limited per server instance.
 - **Secrets.** Never in the repo or the image. Locally in `.env`; on Cloud Run in Secret Manager.
-- **Dependencies.** `pip-audit` and `npm audit` run on every push and weekly; Dependabot opens update pull requests.
+- **Dependencies.** `pip-audit` and `npm audit` run on every push, pull request, and week, and a known vulnerability fails the build. Dependabot alerts and automatic security-fix pull requests are on.
+- **Leaked keys.** GitHub secret scanning with push protection refuses commits that contain a recognizable key or token.
 - **Changes.** `main` is protected: no force pushes or deletion, and every change arrives through a pull request that passes the tests, the dependency audit, the dashboard build, and the container build.
 
 Not covered: distributed rate limiting across instances, a web application firewall, and backups beyond what Neon provides. No system is immune to unknown vulnerabilities; the measures above shorten the window, they do not close it. Report anything you find privately, as [SECURITY.md](SECURITY.md) describes.
@@ -132,7 +133,7 @@ Create the four secrets in Secret Manager first (`python -m api.crypto` prints a
 
 # Authorship and AI disclosure
 
-TrueAcre was conceived and directed by Yigit Dalkilic, its sole author and owner. Most of the code, tests, and documentation were written with Anthropic's Claude (through Claude Code) under his direction and approval. [AI_DISCLOSURE.md](AI_DISCLOSURE.md) sets out who did what.
+TrueAcre was conceived, directed, and deployed by Yigit Dalkilic, its author and owner, with AI-assisted development (Anthropic's Claude, through Claude Code). [AI_DISCLOSURE.md](AI_DISCLOSURE.md) describes how.
 
 # License
 
