@@ -20,6 +20,7 @@ Only the current `main` branch and the service deployed from it receive security
 - An audit log records uploads, link rulings, invites, membership changes, evidence views, and grower statements. Admins can read it, and it is kept after deletions.
 - Every push, every pull request, and a weekly schedule run `pip-audit` and `npm audit` against pinned dependencies, and a known vulnerability fails the build.
 - GitHub Dependabot alerts are on, and Dependabot opens a pull request with the patched version as soon as an advisory affects a dependency. It also opens routine version-update pull requests.
+- GitHub CodeQL code scanning analyzes the project's own Python, JavaScript, and workflow files for security bugs on every push and pull request to `main`.
 - GitHub secret scanning is on with push protection, so a commit containing a recognizable key or token is refused before it reaches the repository.
 - `main` is protected by a repository ruleset: no force pushes, no deletion, and changes only through pull requests that pass every CI check, including the dependency audit.
 

@@ -42,7 +42,10 @@ if not SESSION_SECRET:
 SESSION_COOKIE = "trueacre_session"
 SESSION_MAX_AGE = 7 * 24 * 3600  # seconds
 LOGIN_LIMIT = RateLimiter(limit=10, window_seconds=60)  # sign-in attempts per IP
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+MAX_EMAIL = 320  # the users.email column length
+# Domain labels exclude the dot, so every character has exactly one place in the pattern and a failing
+# match is linear. The older '[^@\s]+\.[^@\s]+' let both groups claim dots and backtracked quadratically.
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+$")
 
 router = APIRouter(prefix="/api", tags=["auth"])
 _serializer = URLSafeTimedSerializer(SESSION_SECRET, salt="session")
@@ -50,7 +53,7 @@ _serializer = URLSafeTimedSerializer(SESSION_SECRET, salt="session")
 
 def normalize_email(email: str) -> str:
     email = email.strip().lower()
-    if not EMAIL_RE.match(email):
+    if len(email) > MAX_EMAIL or not EMAIL_RE.match(email):
         raise HTTPException(status_code=400, detail="that is not a valid email address")
     return email
 

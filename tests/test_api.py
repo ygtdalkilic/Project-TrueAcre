@@ -1,6 +1,8 @@
 import json
+import time
 
 import pytest
+from fastapi import HTTPException
 
 from sqlalchemy import select
 
@@ -19,6 +21,20 @@ TRUTH = generate(seed=DEFAULT_SEED)["ground_truth"]  # the demo dataset's answer
 
 
 # --- public surface and protection ---------------------------------------------------------------
+
+def test_email_check_is_linear_on_hostile_input():
+    """CodeQL py/polynomial-redos: overlapping groups made a failing match quadratic in the input length."""
+    hostile = "a@" + "." * 100_000 + " "
+    start = time.perf_counter()
+    assert auth.EMAIL_RE.match(hostile) is None
+    with pytest.raises(HTTPException):
+        auth.normalize_email(hostile)
+    assert time.perf_counter() - start < 0.5
+    assert auth.normalize_email(" New@Mail.Example.co.uk ") == "new@mail.example.co.uk"
+    for bad in ("bad", "a@b", "a@.b", "a@b..c", "a b@c.d", "a@b.c" + "x" * auth.MAX_EMAIL):
+        with pytest.raises(HTTPException):
+            auth.normalize_email(bad)
+
 
 def test_health_config_and_security_headers(client):
     r = client.get("/api/health")

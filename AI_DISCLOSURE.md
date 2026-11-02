@@ -13,11 +13,12 @@
   - a wrong record match is worse than a missed one;
   - AI stays off the scoring path and may only explain.
 - **The production system.** Yigit set up and runs TrueAcre's server-side infrastructure on Google Cloud: Cloud Run hosting, the Neon Postgres database, Secret Manager for every key, Google sign-in, and the Google Gemini configuration behind the optional explanations.
+- **The code.** Yigit wrote and fixed code across the project himself, in the engine, the API, and the dashboard, alongside the AI-assisted work described below.
 - **The decisions.** What to build and in what order, which suggestions to accept or reject, the product and security posture, the stack, the deployment, the licensing, and when work is ready to ship. No change enters the project without his approval.
 
 ## AI assistance
 
-Development used Anthropic's Claude, through Claude Code, as a coding assistant working under Yigit's direction: writing and revising code, tests, and documentation; researching technical facts the engine depends on (for example that FSA farm numbers are unique only within a county, and the Census Bureau's county adjacency data); and reproducing bugs in synthetic data before fixing them. Its suggestions were accepted or rejected by Yigit.
+Development used Anthropic's Claude, through Claude Code, as a coding assistant working with Yigit and under his direction: writing and revising code, tests, and documentation; researching technical facts the engine depends on (for example that FSA farm numbers are unique only within a county, and the Census Bureau's county adjacency data); and reproducing bugs in synthetic data before fixing them. Its suggestions were accepted or rejected by Yigit.
 
 ## AI inside the product
 

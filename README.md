@@ -114,6 +114,7 @@ What is in place, and what it does not cover.
 - **Abuse.** Sign-in attempts, uploads, USDA imports, and paid explanation calls are rate limited per server instance.
 - **Secrets.** Never in the repo or the image. Locally in `.env`; on Cloud Run in Secret Manager.
 - **Dependencies.** `pip-audit` and `npm audit` run on every push, pull request, and week, and a known vulnerability fails the build. Dependabot alerts and automatic security-fix pull requests are on.
+- **Code scanning.** GitHub CodeQL analyzes the project's own code for security bugs on every push and pull request.
 - **Leaked keys.** GitHub secret scanning with push protection refuses commits that contain a recognizable key or token.
 - **Changes.** `main` is protected: no force pushes or deletion, and every change arrives through a pull request that passes the tests, the dependency audit, the dashboard build, and the container build.
 
