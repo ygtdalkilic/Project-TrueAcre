@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, AuthError } from './api.js'
 import Company from './Company.jsx'
 import Data from './Data.jsx'
+import GrowerHome from './GrowerHome.jsx'
 import Links from './Links.jsx'
 import Login from './Login.jsx'
 import Members from './Members.jsx'
@@ -30,7 +31,8 @@ export default function App() {
   }
 
   const isAdmin = me.current_org.role === 'admin'
-  const views = isAdmin ? Object.keys(VIEWS) : Object.keys(VIEWS).filter((v) => v !== 'members')
+  const isGrower = me.current_org.role === 'grower'
+  const views = isGrower ? [] : isAdmin ? Object.keys(VIEWS) : Object.keys(VIEWS).filter((v) => v !== 'members')
 
   return (
     <div className="app">
@@ -53,9 +55,10 @@ export default function App() {
         </div>
       </header>
 
-      {view === 'scores' && <Scores config={config} onNeedData={() => setView('data')} />}
-      {view === 'links' && <Links onNeedData={() => setView('data')} />}
-      {view === 'data' && <Data config={config} />}
+      {isGrower && <GrowerHome company={me.current_org.name} />}
+      {!isGrower && view === 'scores' && <Scores config={config} onNeedData={() => setView('data')} />}
+      {!isGrower && view === 'links' && <Links onNeedData={() => setView('data')} />}
+      {!isGrower && view === 'data' && <Data config={config} />}
       {view === 'members' && isAdmin && <Members me={me} onOrgDeleted={(m) => { setMe(m); setView('scores') }} />}
 
       <footer className="muted small">

@@ -6,6 +6,7 @@ export default function Members({ me, onOrgDeleted }) {
   const [activity, setActivity] = useState(null)
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('analyst')
+  const [growerId, setGrowerId] = useState('')
   const [message, setMessage] = useState(null)
   const [error, setError] = useState(null)
 
@@ -21,10 +22,11 @@ export default function Members({ me, onOrgDeleted }) {
     e.preventDefault()
     setError(null)
     setMessage(null)
-    api.invite(email, role)
+    api.invite(email, role, role === 'grower' ? growerId : null)
       .then((r) => {
         setMessage(r.joined ? `${r.email} already had an account and is now a member.` : `Invite recorded for ${r.email}. They join when they sign in.`)
         setEmail('')
+        setGrowerId('')
         refresh()
       })
       .catch((err) => setError(err.message))
@@ -46,23 +48,30 @@ export default function Members({ me, onOrgDeleted }) {
         <tbody>
           {data.members.map((m) => (
             <tr key={m.user_id}>
-              <td>{m.name}</td><td>{m.email}</td><td>{m.role}</td>
+              <td>{m.name}</td><td>{m.email}</td><td>{m.role}{m.grower_id && ` · ${m.grower_id}`}</td>
               <td>{m.user_id !== me.user.id && <button className="link" onClick={() => remove(m.user_id)}>remove</button>}</td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      <h3>Invite a colleague</h3>
+      <h3>Invite a colleague or a grower</h3>
       <form onSubmit={invite} className="inline">
         <input type="email" placeholder="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         <select value={role} onChange={(e) => setRole(e.target.value)}>
           <option value="analyst">analyst</option>
           <option value="admin">admin</option>
+          <option value="grower">grower</option>
         </select>
+        {role === 'grower' && (
+          <input placeholder="grower_id" value={growerId} onChange={(e) => setGrowerId(e.target.value)} required />
+        )}
         <button className="primary" type="submit">Invite</button>
       </form>
-      <p className="muted">Analysts can view scores and upload data. Admins can also manage members.</p>
+      <p className="muted">
+        Analysts can view scores and upload data. Admins can also manage members. A grower sees only their own
+        seasons and the arithmetic behind them, and can file their seed statement.
+      </p>
       {message && <p className="ok">{message}</p>}
       {error && <p className="error">{error}</p>}
 
@@ -74,7 +83,7 @@ export default function Members({ me, onOrgDeleted }) {
             <tbody>
               {data.invites.map((i) => (
                 <tr key={i.id}>
-                  <td>{i.email}</td><td>{i.role}</td>
+                  <td>{i.email}</td><td>{i.role}{i.grower_id && ` · ${i.grower_id}`}</td>
                   <td><button className="link" onClick={() => revoke(i.id)}>revoke</button></td>
                 </tr>
               ))}

@@ -1,6 +1,8 @@
 import json
+import time
 
 import pytest
+from fastapi import HTTPException
 
 from sqlalchemy import select
 
@@ -19,6 +21,20 @@ TRUTH = generate(seed=DEFAULT_SEED)["ground_truth"]  # the demo dataset's answer
 
 
 # --- public surface and protection ---------------------------------------------------------------
+
+def test_email_check_is_linear_on_hostile_input():
+    """CodeQL py/polynomial-redos: overlapping groups made a failing match quadratic in the input length."""
+    hostile = "a@" + "." * 100_000 + " "
+    start = time.perf_counter()
+    assert auth.EMAIL_RE.match(hostile) is None
+    with pytest.raises(HTTPException):
+        auth.normalize_email(hostile)
+    assert time.perf_counter() - start < 0.5
+    assert auth.normalize_email(" New@Mail.Example.co.uk ") == "new@mail.example.co.uk"
+    for bad in ("bad", "a@b", "a@.b", "a@b..c", "a b@c.d", "a@b.c" + "x" * auth.MAX_EMAIL):
+        with pytest.raises(HTTPException):
+            auth.normalize_email(bad)
+
 
 def test_health_config_and_security_headers(client):
     r = client.get("/api/health")
@@ -79,7 +95,7 @@ def test_create_company_and_switch(client):
     assert client.get("/api/scores").status_code == 403  # no company chosen yet
 
     me = create_org(client, "  Acme   Seeds ")
-    assert me["current_org"] == {"id": me["organizations"][0]["id"], "name": "Acme Seeds", "role": "admin"}
+    assert me["current_org"] == {"id": me["organizations"][0]["id"], "name": "Acme Seeds", "role": "admin", "grower_id": None}
     second = create_org(client, "Beta Genetics")["current_org"]
     assert client.get("/api/me").json()["current_org"]["name"] == "Beta Genetics"
     first_id = me["current_org"]["id"]
@@ -99,7 +115,7 @@ def test_invites_and_roles(client):
     client.post("/api/auth/logout")
 
     me = login(client, "new@x.com")  # invite becomes a membership on sign-in
-    assert me["current_org"] == {"id": org["id"], "name": "Acme", "role": "analyst"}
+    assert me["current_org"] == {"id": org["id"], "name": "Acme", "role": "analyst", "grower_id": None}
     assert client.post("/api/orgs/current/invites", json={"email": "q@x.com"}).status_code == 403  # analysts cannot invite
     assert "invites" not in client.get("/api/orgs/current/members").json()
     client.post("/api/auth/logout")
@@ -200,9 +216,44 @@ def test_demo_data_scores_match_the_engine(client):
     assert sum(a["acres"] for a in body["acreage_reports"]) == pytest.approx(flagged["declared_acres"])
     cy = body["county_yield"]
     assert cy["mean_yield"] + YIELD_SIGMAS * cy["std_yield"] == pytest.approx(flagged["yield_ceiling"])
+    assert body["clear"]["acres"] > 0 and body["clear"]["units"]["units"] > 0  # what one more receipt must show
+    assert [h["season"] for h in body["history"]] == sorted(h["season"] for h in body["history"])
+    assert flagged["season"] in [h["season"] for h in body["history"]]
     assert client.get("/api/growers/NOPE/seasons/2024/crops/soybeans").status_code == 404
     assert client.get(f"/api/growers/{flagged['grower_id']}/seasons/{flagged['season']}/crops/corn").status_code == 404
     assert isinstance(client.get("/api/unmatched").json(), list)
+
+
+def test_stored_text_columns_stay_text(client):
+    """FSA farm numbers are digits. Read back as numbers, the resolver's farm-number rule would never fire."""
+    from api.pipeline import load_tables
+    login(client, "a@x.com")
+    create_org(client, "Acme")
+    load_demo(client)
+    with SessionLocal() as db:
+        tables = load_tables(db, db.scalar(select(models.Organization)))
+    assert tables["growers"]["farm_number"].dropna().map(type).eq(str).all()
+    assert tables["acreage_reports"]["farm_number"].map(type).eq(str).all()
+    evidence_methods = set()
+    for row in client.get("/api/scores").json()[:40]:
+        ev = client.get(f"/api/growers/{row['grower_id']}/seasons/{row['season']}/crops/{row['crop']}").json()
+        evidence_methods |= {a["match_method"] for a in ev["acreage_reports"]}
+    assert "farm number" in evidence_methods  # the farm-number rule fires through the API, not only in engine tests
+
+
+def test_seed_statements_are_optional_and_required_for_review(client):
+    login(client, "a@x.com")
+    create_org(client, "Acme")
+    load_demo(client)
+    status = {row["table"]: row for row in client.get("/api/data").json()}
+    assert status["seed_statements"]["optional"] and not status["growers"]["optional"]
+    assert client.get("/api/scores", params={"label": REVIEW}).json()
+
+    assert client.delete("/api/data/seed_statements").status_code == 204
+    rows = client.get("/api/scores").json()  # still scored without the optional table
+    assert len(rows) == len(TRUTH)
+    assert not any(r["has_statement"] for r in rows)
+    assert not [r for r in rows if r["label"] == REVIEW]  # a gap alone could be another company's seed
 
 
 def test_audit_log_records_actions_for_admins_only(client):
@@ -216,7 +267,7 @@ def test_audit_log_records_actions_for_admins_only(client):
     events = client.get("/api/orgs/current/audit").json()
     assert [e["action"] for e in events] == ["invite.create", "evidence.view", "data.demo", "org.create"]  # newest first
     assert all(e["user"] == "admin@x.com" and e["ip"] for e in events)
-    assert events[0]["detail"] == {"email": "an@x.com", "role": "analyst", "joined": False}
+    assert events[0]["detail"] == {"email": "an@x.com", "role": "analyst", "grower_id": None, "joined": False}
     assert events[1]["detail"]["grower_id"] == row["grower_id"]
 
     client.post("/api/auth/logout")

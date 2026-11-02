@@ -23,7 +23,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from api import auth, datasets, links, orgs, scores, usda
+from api import auth, datasets, grower, links, orgs, scores, usda
 from api.db import init_db
 from api.security import IS_PRODUCTION, SameOriginMiddleware, SecurityHeadersMiddleware
 
@@ -48,7 +48,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(SameOriginMiddleware)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 
-for module in (auth, orgs, datasets, usda, scores, links):
+for module in (auth, orgs, datasets, usda, scores, links, grower):
     app.include_router(module.router)
 
 

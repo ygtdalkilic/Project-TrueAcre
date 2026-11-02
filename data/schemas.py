@@ -81,13 +81,25 @@ class CountyYield:
 
 
 @dataclass
+class SeedStatement:
+    """The grower's own statement of acres planted with seed NOT bought from this company: another
+    company's seed or conventional seed. 0 means every acre of the crop was this company's seed.
+    Optional table; without a statement, an acre gap cannot be told apart from another brand's seed."""
+    grower_id: str
+    season: int
+    crop: str
+    other_seed_acres: float
+
+
+@dataclass
 class GroundTruth:
     grower_id: str
     season: int
-    case_type: str  # "clean" | "ghost_seed" | "missing_dealer"
+    case_type: str  # "clean" | "ghost_seed" | "split_brand" | "missing_dealer" | "neighbor_dealer"
     planted_acres: float  # what the grower really planted
     licensed_acres: float  # acres the seed they really bought could plant
     hidden_units: int  # units bought from a non-participating dealer, invisible to the system
+    other_seed_acres: float  # acres planted with another company's seed (split_brand only)
 
 
 @dataclass

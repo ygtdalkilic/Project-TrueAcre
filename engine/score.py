@@ -2,7 +2,9 @@
 
 Score: how much of what the grower declared or delivered is NOT backed by licensed seed.
 Label: whether the data is complete enough to say anything about that gap.
-A large gap with thin data is "insufficient data", never "review recommended".
+A large gap with thin data is "insufficient data", never "review recommended". Thin data means
+low dealer coverage, or no seed statement: without the grower's own count of acres planted with
+other seed, another company's seed and saved seed look exactly the same.
 """
 import numpy as np
 import pandas as pd
@@ -41,6 +43,6 @@ def score(recon: pd.DataFrame) -> pd.DataFrame:
         out["unsupported_bushel_fraction"] > BUSHEL_TOLERANCE
     )
     out["label"] = np.select(
-        [~has_gap, out["coverage"] >= COVERAGE_MIN], [CONSISTENT, REVIEW], default=INSUFFICIENT
+        [~has_gap, (out["coverage"] >= COVERAGE_MIN) & out["has_statement"]], [CONSISTENT, REVIEW], default=INSUFFICIENT
     )
     return out

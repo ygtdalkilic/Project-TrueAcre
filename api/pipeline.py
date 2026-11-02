@@ -5,6 +5,7 @@ so scores are recomputed only when something changed. The cache is per server in
 """
 import io
 import threading
+from dataclasses import fields
 
 import pandas as pd
 from fastapi import HTTPException
@@ -13,8 +14,9 @@ from sqlalchemy.orm import Session
 
 from api import models
 from api.crypto import decrypt
-from api.tables import TABLES
+from api.tables import OPTIONAL, TABLES
 from engine.reconcile import reconcile
+from engine.replant import replant_signature
 from engine.resolve import SOURCES, resolve
 from engine.score import score
 
@@ -22,9 +24,33 @@ _cache: dict[int, tuple[int, dict]] = {}
 _lock = threading.Lock()
 
 
+def _text_columns(table: str) -> dict[str, type]:
+    """Schema text columns, read back as text: FSA farm numbers are digits, and '0042' must not become 42."""
+    return {f.name: str for f in fields(TABLES[table]) if f.type in (str, str | None)}
+
+
 def load_tables(db: Session, org: models.Organization) -> dict[str, pd.DataFrame]:
     rows = db.scalars(select(models.Dataset).where(models.Dataset.org_id == org.id)).all()
-    return {d.table_name: pd.read_csv(io.StringIO(decrypt(d.ciphertext))) for d in rows}
+    return {d.table_name: pd.read_csv(io.StringIO(decrypt(d.ciphertext)), dtype=_text_columns(d.table_name))
+            for d in rows}
+
+
+def load_grower_statements(db: Session, org_id: int) -> pd.DataFrame:
+    """Statements growers filed themselves on the self-check page, as seed_statements rows."""
+    rows = db.scalars(select(models.GrowerStatement).where(models.GrowerStatement.org_id == org_id)).all()
+    return pd.DataFrame([(s.grower_id, s.season, s.crop, s.other_seed_acres) for s in rows],
+                        columns=[f.name for f in fields(TABLES["seed_statements"])])
+
+
+def with_grower_statements(tables: dict[str, pd.DataFrame], filed: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """A grower's own filed statement replaces any uploaded row for the same grower, season, and crop. Pure."""
+    if filed.empty:
+        return tables
+    key = ["grower_id", "season", "crop"]
+    uploaded = tables.get("seed_statements", filed.iloc[0:0])
+    kept = uploaded.merge(filed[key], on=key, how="left", indicator=True)
+    kept = kept[kept["_merge"] == "left_only"].drop(columns="_merge")
+    return {**tables, "seed_statements": pd.concat([kept, filed], ignore_index=True)}
 
 
 def load_decisions(db: Session, org_id: int) -> dict[str, str | None]:
@@ -64,13 +90,14 @@ def results(db: Session, org: models.Organization) -> dict:
             return cached[1]
 
     tables = load_tables(db, org)
-    missing = [t for t in TABLES if t not in tables]
+    missing = [t for t in TABLES if t not in tables and t not in OPTIONAL]
     if missing:
         raise HTTPException(status_code=409, detail={"message": "upload these tables first", "missing": missing})
 
+    tables = with_grower_statements(tables, load_grower_statements(db, org.id))
     resolved = apply_decisions(resolve(tables), tables, load_decisions(db, org.id))
     scores = (
-        score(reconcile(resolved))
+        replant_signature(score(reconcile(resolved)))
         .merge(tables["growers"][["grower_id", "name"]], on="grower_id")
         .sort_values(["fair_play_score", "grower_id", "season", "crop"])
     )

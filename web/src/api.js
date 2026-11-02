@@ -38,7 +38,8 @@ export const api = {
   deleteOrg: () => request('/orgs/current', { method: 'DELETE' }),
   chooseOrg: (org_id) => request('/me/org', { method: 'PUT', body: { org_id } }),
   members: () => request('/orgs/current/members'),
-  invite: (email, role) => request('/orgs/current/invites', { method: 'POST', body: { email, role } }),
+  invite: (email, role, grower_id) =>
+    request('/orgs/current/invites', { method: 'POST', body: { email, role, grower_id: grower_id || null } }),
   revokeInvite: (id) => request(`/orgs/current/invites/${id}`, { method: 'DELETE' }),
   removeMember: (userId) => request(`/orgs/current/members/${userId}`, { method: 'DELETE' }),
   dataStatus: () => request('/data'),
@@ -60,4 +61,8 @@ export const api = {
   decideLink: (record_id, grower_id, note) => request('/links/decisions', { method: 'POST', body: { record_id, grower_id, note } }),
   revertLink: (recordId) => request(`/links/decisions/${recordId}`, { method: 'DELETE' }),
   audit: () => request('/orgs/current/audit'),
+  growerSeasons: () => request('/grower/seasons'),
+  growerEvidence: (season, crop) => request(`/grower/seasons/${season}/crops/${crop}`),
+  fileStatement: (season, crop, other_seed_acres) =>
+    request(`/grower/seasons/${season}/crops/${crop}/statement`, { method: 'PUT', body: { other_seed_acres } }),
 }

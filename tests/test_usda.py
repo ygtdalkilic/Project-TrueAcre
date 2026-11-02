@@ -5,6 +5,7 @@ import pytest
 
 import api.usda as usda
 from api.usda import fetch_county_yields
+from data.generate import COUNTIES
 from tests.conftest import create_org, load_demo, login
 
 
@@ -51,8 +52,8 @@ def test_usda_import_endpoint(client, monkeypatch):
     load_demo(client)
 
     series = {y: 55.0 + (y % 3) for y in range(2010, 2026)}
-    counties = ["STORY", "BOONE", "MCLEAN", "CHAMPAIGN", "WRIGHT", "LIVINGSTON"]
-    transport, seen = fake_nass({c: series for c in counties})
+    counties = [(county, state) for county, state, _full, _yield in COUNTIES]  # the demo's counties
+    transport, seen = fake_nass({county.upper(): series for county, _state in counties})
     monkeypatch.setattr(usda, "TRANSPORT", transport)
 
     r = client.post("/api/data/county_yields/usda")

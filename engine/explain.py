@@ -39,7 +39,8 @@ reference, and a computed Fair-Play Score with a label.
 Write plain text, under 200 words, no headings or markdown:
 1. Two or three sentences saying what the numbers show, in everyday language.
 2. A short list of innocent explanations the analyst must rule out before contacting the grower
-   (for example seed bought from a dealer outside the system, carryover seed from last year,
+   (for example seed bought from a dealer outside the system, another company's or conventional
+   seed when the grower has no seed statement on file, carryover seed from last year,
    custom-farmed land, grain delivered on behalf of a landlord or neighbor, a records error).
 3. One sentence naming the single record that would settle it.
 

@@ -1,6 +1,6 @@
 """Company data intake: CSV templates, validated uploads, one-click demo data, and status.
 
-Each of the seven tables the engine needs is uploaded as a CSV. Columns and types come from the
+Each table is uploaded as a CSV; all are required except those in api.tables.OPTIONAL. Columns and types come from the
 row schemas in data/schemas.py, so the template, the validation, and the engine can never drift
 apart. Extra columns are dropped; the normalized CSV is what gets stored.
 """
@@ -20,7 +20,7 @@ from api.auth import current_membership
 from api.crypto import encrypt
 from api.db import get_db
 from api.security import RateLimiter
-from api.tables import TABLES
+from api.tables import OPTIONAL, TABLES
 from data.generate import DEFAULT_SEED, generate
 
 router = APIRouter(prefix="/api/data", tags=["data"])
@@ -101,7 +101,7 @@ def _table_or_404(table: str) -> None:
 def status(membership: models.Membership = Depends(current_membership), db: Session = Depends(get_db)):
     present = {d.table_name: d for d in db.scalars(select(models.Dataset).where(models.Dataset.org_id == membership.org_id))}
     return [
-        {"table": t, "columns": [f.name for f in fields(row_type)],
+        {"table": t, "columns": [f.name for f in fields(row_type)], "optional": t in OPTIONAL,
          "rows": present[t].row_count if t in present else None,
          "uploaded_at": present[t].uploaded_at.isoformat() if t in present else None}
         for t, row_type in TABLES.items()
