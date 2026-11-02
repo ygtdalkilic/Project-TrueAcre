@@ -8,7 +8,7 @@ sees only that grower's own seasons (api/grower.py); every staff route refuses t
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, LargeBinary, String, Text, UniqueConstraint, delete
+from sqlalchemy import DateTime, Float, ForeignKey, LargeBinary, String, Text, UniqueConstraint, delete
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from api.db import Base
@@ -120,7 +120,7 @@ class GrowerStatement(Base):
     grower_id: Mapped[str] = mapped_column(String(40))
     season: Mapped[int]
     crop: Mapped[str] = mapped_column(String(40))
-    other_seed_acres: Mapped[float]
+    other_seed_acres: Mapped[float] = mapped_column(Float)  # named: SQLAlchemy 2.1 maps a bare float to Double
     submitted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
